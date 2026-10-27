@@ -54,20 +54,26 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<ApiError> conflict(DataIntegrityViolationException ex, HttpServletRequest request) {
-        // Only known user uniqueness violations are public conflicts. Other integrity errors are bugs.
-        String constraint = null;
-        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
-            if (cause instanceof org.hibernate.exception.ConstraintViolationException violation) {
-                constraint = violation.getConstraintName();
-                break;
-            }
-        }
-        if ("ix_users_3".equals(constraint)) {
+        // Constraint names are matched internally; SQL detail is never included in the response.
+        String constraint = constraintName(ex);
+        if ("ix_users_3".equals(constraint))
             return error(HttpStatus.CONFLICT, "AUTH_EMAIL_EXISTS", "Email already registered", request);
-        }
-        if ("ix_users_4".equals(constraint)) {
+        if ("ix_users_4".equals(constraint))
             return error(HttpStatus.CONFLICT, "AUTH_PHONE_EXISTS", "Phone already registered", request);
-        }
+        if ("ix_seller_applications_3".equals(constraint))
+            return error(HttpStatus.CONFLICT, "SELLER_APPLICATION_ACTIVE_EXISTS", "An active seller application already exists", request);
+        if ("ix_seller_applications_4".equals(constraint))
+            return error(HttpStatus.CONFLICT, "SELLER_ALREADY_APPROVED", "The user is already an approved seller", request);
+        if ("uq_shops_owner_user_id".equals(constraint))
+            return error(HttpStatus.CONFLICT, "SHOP_OWNER_LIMIT_REACHED", "A seller can own only one shop", request);
+        if ("uq_shops_application_id".equals(constraint))
+            return error(HttpStatus.CONFLICT, "SHOP_APPLICATION_ALREADY_USED", "The seller application already has a shop", request);
+        if ("uq_shops_slug".equals(constraint))
+            return error(HttpStatus.CONFLICT, "SHOP_SLUG_EXISTS", "Shop slug already exists", request);
+        if ("uq_shop_members_shop_id_user_id".equals(constraint))
+            return error(HttpStatus.CONFLICT, "SHOP_MEMBER_EXISTS", "The user is already associated with this shop", request);
+        if ("ix_shop_ownership_transfers_pending_shop".equals(constraint))
+            return error(HttpStatus.CONFLICT, "SHOP_TRANSFER_PENDING_EXISTS", "The shop already has a pending ownership transfer", request);
         return internal(ex, request);
     }
 
@@ -80,5 +86,20 @@ public class ApiExceptionHandler {
 
     private ResponseEntity<ApiError> error(HttpStatus status, String code, String message, HttpServletRequest request) {
         return ResponseEntity.status(status).body(new ApiError(Instant.now(), status.value(), code, message, request.getRequestURI()));
+    }
+
+    private String constraintName(DataIntegrityViolationException ex) {
+        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException violation
+                    && violation.getConstraintName() != null) return violation.getConstraintName();
+            String message = cause.getMessage();
+            if (message == null) continue;
+            for (String known : new String[]{"ix_users_3", "ix_users_4", "ix_seller_applications_3",
+                    "ix_seller_applications_4", "uq_shops_owner_user_id", "uq_shops_application_id",
+                    "uq_shops_slug", "uq_shop_members_shop_id_user_id", "ix_shop_ownership_transfers_pending_shop"}) {
+                if (message.contains(known)) return known;
+            }
+        }
+        return null;
     }
 }

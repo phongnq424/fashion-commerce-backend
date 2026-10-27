@@ -63,7 +63,7 @@ class FashionCommerceBackendApplicationTests {
     }
 
     @Test void contextLoadsWithAllMigrationsAndValidatedEntityMappings() {
-        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success and version in ('1','1.1','2','3','4','5')", Integer.class)).isEqualTo(6);
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success and version in ('1','1.1','2','3','4','5','6')", Integer.class)).isEqualTo(7);
     }
     @Test void registrationPersistsCredentialAndCustomerButNoVerifiedEmail() {
         UserResponse user = newUser();
