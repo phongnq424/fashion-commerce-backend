@@ -74,6 +74,8 @@ public class ApiExceptionHandler {
             return error(HttpStatus.CONFLICT, "SHOP_MEMBER_EXISTS", "The user is already associated with this shop", request);
         if ("ix_shop_ownership_transfers_pending_shop".equals(constraint))
             return error(HttpStatus.CONFLICT, "SHOP_TRANSFER_PENDING_EXISTS", "The shop already has a pending ownership transfer", request);
+        if ("ix_seller_onboardings_active_user".equals(constraint))
+            return error(HttpStatus.CONFLICT, "SELLER_ONBOARDING_ACTIVE_EXISTS", "An active seller onboarding already exists", request);
         return internal(ex, request);
     }
 
@@ -96,7 +98,8 @@ public class ApiExceptionHandler {
             if (message == null) continue;
             for (String known : new String[]{"ix_users_3", "ix_users_4", "ix_seller_applications_3",
                     "ix_seller_applications_4", "uq_shops_owner_user_id", "uq_shops_application_id",
-                    "uq_shops_slug", "uq_shop_members_shop_id_user_id", "ix_shop_ownership_transfers_pending_shop"}) {
+                    "uq_shops_slug", "uq_shop_members_shop_id_user_id", "ix_shop_ownership_transfers_pending_shop",
+                    "ix_seller_onboardings_active_user"}) {
                 if (message.contains(known)) return known;
             }
         }

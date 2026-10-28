@@ -9,7 +9,6 @@ import org.springframework.http.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.net.URI;
 import java.util.UUID;
 
 @RestController
@@ -19,12 +18,6 @@ public class ShopController {
 
     public ShopController(ShopService service) {
         this.service = service;
-    }
-
-    @PostMapping
-    public ResponseEntity<ShopResponse> create(Authentication identity, @Valid @RequestBody CreateRequest request) {
-        ShopResponse response = service.create(CurrentIdentity.userId(identity).orElseThrow(), request);
-        return ResponseEntity.created(URI.create("/api/v1/shops/" + response.id())).body(response);
     }
 
     @GetMapping("/mine")

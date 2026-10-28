@@ -13,6 +13,8 @@ import com.fashioncommerce.fashioncommercebackend.user.controller.CurrentUserCon
 import com.fashioncommerce.fashioncommercebackend.user.entity.User;
 import com.fashioncommerce.fashioncommercebackend.user.repository.UserRepository;
 import com.fashioncommerce.fashioncommercebackend.user.service.CurrentUserService;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.RequestDispatcher;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -59,6 +61,13 @@ class SecurityHttpTests {
     @Test void protectedEndpointWithoutTokenReturnsJson401() throws Exception {
         mvc.perform(get("/api/v1/users/me")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("AUTH_UNAUTHORIZED"))
                 .andExpect(header().string("WWW-Authenticate", "Bearer")).andExpect(jsonPath("$.path").value("/api/v1/users/me"));
+    }
+    @Test void internalErrorDispatchIsNotReplacedByAuthentication401() throws Exception {
+        mvc.perform(get("/error")
+                        .with(request -> { request.setDispatcherType(DispatcherType.ERROR); return request; })
+                        .requestAttr(RequestDispatcher.ERROR_STATUS_CODE, 500)
+                        .requestAttr(RequestDispatcher.ERROR_REQUEST_URI, "/api/v1/failing-request"))
+                .andExpect(status().isInternalServerError());
     }
     @Test void otherEndpointsAndActuatorAreProtected() throws Exception {
         mvc.perform(get("/actuator/health")).andExpect(status().isUnauthorized());

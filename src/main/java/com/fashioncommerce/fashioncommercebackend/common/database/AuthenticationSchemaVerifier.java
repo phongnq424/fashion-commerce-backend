@@ -30,6 +30,14 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
                 Map.entry("shop_member_roles", List.of("member_id", "role_id", "scope")),
                 Map.entry("shop_settings", List.of("shop_id", "handling_days", "return_window_days", "default_shipping_fee_minor")),
                 Map.entry("shop_ownership_transfers", List.of("id", "shop_id", "from_owner_user_id", "to_user_id", "status", "expires_at")),
+                Map.entry("seller_onboardings", List.of("id", "applicant_user_id", "shop_id", "status", "submitted_at", "reviewed_by", "reviewed_at", "completed_at")),
+                Map.entry("shop_pickup_addresses", List.of("id", "shop_id", "contact_name", "province_name", "ward_name", "is_default_pickup")),
+                Map.entry("shipping_providers", List.of("id", "code", "name", "is_active")),
+                Map.entry("shop_shipping_configs", List.of("shop_id", "provider_id", "pickup_address_id", "is_enabled")),
+                Map.entry("seller_tax_profiles", List.of("onboarding_id", "business_type", "tax_code", "status")),
+                Map.entry("seller_identity_verifications", List.of("onboarding_id", "document_type", "document_number_last4", "status")),
+                Map.entry("seller_policy_versions", List.of("version", "title", "is_required", "is_active", "effective_at")),
+                Map.entry("seller_policy_acceptances", List.of("id", "onboarding_id", "policy_version", "accepted_at")),
                 Map.entry("audit_logs", List.of("id", "actor_user_id", "action", "changes")),
                 Map.entry("products", List.of("id", "shop_id")),
                 Map.entry("shop_orders", List.of("id", "shop_id")),
@@ -44,7 +52,7 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
             throw new IllegalStateException("Missing flyway_schema_history; use a reviewed test migration environment");
         }
         List<String> applied = jdbc.queryForList("select version from flyway_schema_history where success", String.class);
-        List<String> missing = new ArrayList<>(List.of("1", "1.1", "2", "3", "4", "5", "6")); missing.removeAll(applied);
+        List<String> missing = new ArrayList<>(List.of("1", "1.1", "2", "3", "4", "5", "6", "7", "8", "9")); missing.removeAll(applied);
         if (!missing.isEmpty()) throw new IllegalStateException("Missing successful Flyway migrations: " + missing);
         if (jdbc.queryForObject("select count(*) from flyway_schema_history where not success", Integer.class) != 0) {
             throw new IllegalStateException("Failed entries in flyway_schema_history require review");

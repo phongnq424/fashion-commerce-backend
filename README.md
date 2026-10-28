@@ -50,7 +50,7 @@ src/main/resources
 
 ## Cơ sở dữ liệu
 
-Repo có 7 migration, tạo tổng cộng 49 bảng:
+Repo có 10 migration, tạo tổng cộng 57 bảng:
 
 | Migration | Phạm vi |
 |---|---|
@@ -61,6 +61,9 @@ Repo có 7 migration, tạo tổng cộng 49 bảng:
 | `V4` | Payment, shipping, return và refund |
 | `V5` | Voucher, review, moderation và notification |
 | `V6` | Vòng đời seller/shop, nhân sự và chuyển nhượng ownership |
+| `V7` | Onboarding seller nhiều bước, địa chỉ lấy hàng, vận chuyển, thuế, CCCD và chính sách |
+| `V8` | Catalog phiên bản chính sách seller và trạng thái chờ chấp nhận chính sách |
+| `V9` | Gộp thuế, CCCD và chính sách thành một hồ sơ với một lần moderator duyệt |
 
 Flyway bị tắt mặc định để tránh vô tình thay đổi sai database. Chỉ bật migration trên database development hoặc test đã được xác nhận.
 
@@ -125,19 +128,31 @@ Không bật migration trên database production nếu chưa kiểm tra kỹ c�
 
 | Method | Endpoint | Mô tả |
 |---|---|---|
-| `POST` | `/api/v1/seller/applications` | Nộp hồ sơ seller |
-| `GET` | `/api/v1/seller/applications` | Xem lịch sử hồ sơ của mình |
-| `GET/PUT` | `/api/v1/seller/applications/{id}` | Xem hoặc sửa hồ sơ đang chờ |
-| `DELETE` | `/api/v1/seller/applications/{id}` | Hủy hồ sơ đang chờ |
-| `GET` | `/api/v1/admin/seller-applications` | Danh sách hồ sơ cho moderator |
-| `POST` | `/api/v1/admin/seller-applications/{id}/review/start` | Nhận kiểm duyệt hồ sơ |
-| `POST` | `/api/v1/admin/seller-applications/{id}/decision` | Duyệt hoặc từ chối hồ sơ |
+| `POST` | `/api/v1/seller/onboarding` | Bước 1: tạo gian hàng nháp |
+| `GET` | `/api/v1/seller/onboarding/me` | Xem onboarding đang thực hiện |
+| `GET` | `/api/v1/seller/onboarding/{id}` | Xem đầy đủ tiến độ onboarding |
+| `PUT` | `/api/v1/seller/onboarding/{id}/shop` | Cập nhật tên, email, điện thoại, avatar, mô tả và ảnh bìa |
+| `PUT` | `/api/v1/seller/onboarding/{id}/pickup-address` | Bước 2: thiết lập địa chỉ lấy hàng |
+| `GET` | `/api/v1/seller/onboarding/{id}/shipping-providers` | Danh sách hãng vận chuyển khả dụng |
+| `PUT` | `/api/v1/seller/onboarding/{id}/shipping` | Bước 3: bật/tắt hãng vận chuyển và chọn địa chỉ lấy hàng |
+| `PUT` | `/api/v1/seller/onboarding/{id}/tax` | Bước 4: lưu thông tin thuế |
+| `PUT` | `/api/v1/seller/onboarding/{id}/identity` | Lưu thông tin CCCD vào hồ sơ nháp |
+| `GET` | `/api/v1/seller/onboarding/{id}/policies` | Danh sách chính sách đang hiệu lực và trạng thái chấp nhận |
+| `POST` | `/api/v1/seller/onboarding/{id}/policy-acceptances` | Đồng ý một phiên bản chính sách seller |
+| `POST` | `/api/v1/seller/onboarding/{id}/complete` | Hoàn tất và gửi toàn bộ hồ sơ để duyệt một lần |
+| `GET` | `/api/v1/admin/seller-onboardings/reviews` | Hàng đợi hồ sơ seller tổng hợp |
+| `POST` | `/api/v1/admin/seller-onboardings/{id}/decision` | Moderator duyệt hoặc từ chối toàn bộ hồ sơ |
+| `GET` | `/api/v1/seller/applications` | Xem lịch sử seller application đã tạo khi hoàn tất |
+
+Ba loại hình thuế hiện có là `INDIVIDUAL`, `HOUSEHOLD_BUSINESS` và `ENTERPRISE`. Shop ở trạng thái
+`DRAFT` trong lúc người bán khai báo shop, địa chỉ, vận chuyển, thuế, CCCD và chấp nhận chính sách.
+API hoàn tất chuyển toàn bộ gói sang `PENDING_REVIEW`. Moderator chỉ quyết định một lần; khi approve,
+seller application thành `APPROVED` và shop chuyển sang `ACTIVE` trong cùng transaction.
 
 ### Shop và nhân viên
 
 | Method | Endpoint | Mô tả |
 |---|---|---|
-| `POST` | `/api/v1/shops` | Tạo shop từ hồ sơ seller đã duyệt |
 | `GET` | `/api/v1/shops/mine` | Danh sách shop đang tham gia |
 | `GET/PATCH/DELETE` | `/api/v1/shops/{shopId}` | Xem, cập nhật hoặc đóng shop |
 | `GET/PUT` | `/api/v1/shops/{shopId}/settings` | Xem hoặc cập nhật cài đặt shop |
@@ -164,7 +179,7 @@ Role nhân viên có thể gán qua API gồm `SHOP_MANAGER`, `SHOP_CATALOG`, `S
 
 Quy tắc chính:
 
-- Chỉ hồ sơ seller `APPROVED` mới được dùng để tạo shop.
+- Shop được tạo dạng `DRAFT` ngay khi bắt đầu onboarding và chỉ chuyển `ACTIVE` sau khi hoàn tất toàn bộ quy trình.
 - Mỗi user chỉ được sở hữu một shop tại một thời điểm.
 - Lời mời nhân viên chỉ gửi tới tài khoản đã đăng ký và đang hoạt động.
 - Xóa nhân viên là vô hiệu hóa mềm để giữ lịch sử và audit log.

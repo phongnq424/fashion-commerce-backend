@@ -2,6 +2,7 @@ package com.fashioncommerce.fashioncommercebackend.security.config;
 
 import com.fashioncommerce.fashioncommercebackend.security.exception.SecurityErrorHandler;
 import com.fashioncommerce.fashioncommercebackend.user.repository.UserRepository;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -55,6 +56,8 @@ public class SecurityConfiguration {
                 .httpBasic(basic -> basic.disable())
                 .logout(logout -> logout.disable())
                 .authorizeHttpRequests(requests -> requests
+                        // Internal error dispatch must preserve the original API error instead of replacing it with a 401.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint(errors).accessDeniedHandler(errors))
