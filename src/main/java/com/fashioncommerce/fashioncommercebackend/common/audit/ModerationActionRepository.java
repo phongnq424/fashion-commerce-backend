@@ -30,5 +30,14 @@ public class ModerationActionRepository {
                 values (?, ?, ?, ?, ?, ?, ?)
                 """, UUID.randomUUID(), moderatorId, shopId, action, reason, previousStatus, newStatus);
     }
+
+    public void productDecision(UUID moderatorId, UUID productId, String action, String reason,
+                                String previousStatus, String newStatus) {
+        jdbc.update("""
+                insert into moderation_actions
+                    (id, moderator_user_id, target_product_id, action, reason, previous_status, new_status)
+                values (?, ?, ?, ?, ?, ?, ?)
+                """, UUID.randomUUID(), moderatorId, productId, action, reason, previousStatus, newStatus);
+    }
 }
 

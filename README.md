@@ -18,10 +18,12 @@ Repo hiện đã hoàn thành nền tảng cơ sở dữ liệu, xác thực/ph�
 - Tạo, cập nhật, đóng và kiểm duyệt shop.
 - Mời nhân viên, chấp nhận/từ chối lời mời và quản lý role trong shop.
 - Xóa mềm nhân viên và chuyển nhượng quyền sở hữu shop.
+- Tạo sản phẩm với SKU, giá, ảnh và tồn kho; seller đăng bán ngay không cần chờ duyệt.
+- Báo cáo sản phẩm và hậu kiểm bằng các action cảnh cáo, ẩn, gỡ, khôi phục hoặc bác báo cáo.
 - Ghi audit log cho các thao tác seller/shop nhạy cảm.
 - Unit test, security test và bộ integration test PostgreSQL tùy chọn.
 
-Các module commerce như catalog, inventory, cart, order, payment và shipping hiện mới có schema cơ sở dữ liệu, chưa có API nghiệp vụ.
+Các module cart, order, payment và shipping hiện mới có schema cơ sở dữ liệu, chưa có API nghiệp vụ.
 
 ## Công nghệ
 
@@ -40,6 +42,7 @@ src/main/java/com/fashioncommerce/fashioncommercebackend
 ├── auth             # Đăng ký, đăng nhập, refresh token và đăng xuất
 ├── authorization    # Phân quyền platform và shop
 ├── common           # Xử lý lỗi và kiểm tra schema
+├── product          # Catalog, SKU, tồn kho và hậu kiểm sản phẩm
 ├── security         # JWT, Spring Security và CORS
 └── user             # User, credential, session và thông tin cá nhân
 
@@ -50,7 +53,7 @@ src/main/resources
 
 ## Cơ sở dữ liệu
 
-Repo có 10 migration, tạo tổng cộng 57 bảng:
+Repo có 13 migration, tạo tổng cộng 58 bảng:
 
 | Migration | Phạm vi |
 |---|---|
@@ -64,6 +67,9 @@ Repo có 10 migration, tạo tổng cộng 57 bảng:
 | `V7` | Onboarding seller nhiều bước, địa chỉ lấy hàng, vận chuyển, thuế, CCCD và chính sách |
 | `V8` | Catalog phiên bản chính sách seller và trạng thái chờ chấp nhận chính sách |
 | `V9` | Gộp thuế, CCCD và chính sách thành một hồ sơ với một lần moderator duyệt |
+| `V10` | Đăng bán sản phẩm ngay, moderation case và hậu kiểm sản phẩm |
+| `V11` | Bổ sung action bác báo cáo sản phẩm theo migration tiến tới |
+| `V12` | Thu gọn catalog đang hoạt động còn Áo, Quần và Váy & Đầm |
 
 Flyway bị tắt mặc định để tránh vô tình thay đổi sai database. Chỉ bật migration trên database development hoặc test đã được xác nhận.
 
@@ -148,6 +154,30 @@ Ba loại hình thuế hiện có là `INDIVIDUAL`, `HOUSEHOLD_BUSINESS` và `EN
 `DRAFT` trong lúc người bán khai báo shop, địa chỉ, vận chuyển, thuế, CCCD và chấp nhận chính sách.
 API hoàn tất chuyển toàn bộ gói sang `PENDING_REVIEW`. Moderator chỉ quyết định một lần; khi approve,
 seller application thành `APPROVED` và shop chuyển sang `ACTIVE` trong cùng transaction.
+
+### Sản phẩm và hậu kiểm
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| `GET` | `/api/v1/catalog/categories` | Danh mục đang hoạt động, không yêu cầu đăng nhập |
+| `GET` | `/api/v1/catalog/brands` | Thương hiệu đang hoạt động, không yêu cầu đăng nhập |
+| `POST` | `/api/v1/shops/{shopId}/products` | Tạo sản phẩm nháp cùng option, SKU, giá, ảnh và tồn kho ban đầu |
+| `GET` | `/api/v1/shops/{shopId}/products` | Danh sách sản phẩm của shop, gồm cả sản phẩm chưa công khai |
+| `GET` | `/api/v1/shops/{shopId}/products/{productId}` | Chi tiết sản phẩm dành cho shop |
+| `PATCH` | `/api/v1/shops/{shopId}/products/{productId}` | Cập nhật thông tin mô tả sản phẩm |
+| `PUT` | `/api/v1/shops/{shopId}/products/variants/{variantId}/inventory` | Điều chỉnh tồn kho SKU và ghi inventory movement |
+| `POST` | `/api/v1/shops/{shopId}/products/{productId}/publish` | Đăng bán ngay, không qua bước duyệt |
+| `POST` | `/api/v1/shops/{shopId}/products/{productId}/unpublish` | Seller chủ động ngừng bán |
+| `GET` | `/api/v1/products` | Danh sách sản phẩm `ACTIVE` công khai |
+| `GET` | `/api/v1/products/{productId}` | Chi tiết sản phẩm `ACTIVE` công khai |
+| `POST` | `/api/v1/products/{productId}/reports` | Người dùng đăng nhập báo cáo sản phẩm đang bán |
+| `GET` | `/api/v1/admin/product-moderation/cases` | Hàng đợi report dành cho moderator |
+| `GET` | `/api/v1/admin/product-moderation/cases/{caseId}` | Chi tiết moderation case |
+| `POST` | `/api/v1/admin/product-moderation/products/{productId}/decision` | `WARN`, `HIDE`, `REMOVE`, `RESTORE` hoặc `DISMISS` |
+
+Sản phẩm mới ở trạng thái `DRAFT`. Khi có ít nhất một SKU active, bản ghi tồn kho và một ảnh chính,
+seller có thể publish để chuyển trực tiếp sang `ACTIVE`. `HIDDEN` và `REMOVED` không xuất hiện ở API công khai;
+`RESTORE` đưa sản phẩm trở lại `ACTIVE`. Mọi quyết định hậu kiểm đều được ghi audit, moderation action và gửi thông báo cho owner.
 
 ### Shop và nhân viên
 
@@ -243,12 +273,10 @@ Không dùng database production cho integration test. Bộ test có thể áp d
 - Xác minh email và quên mật khẩu.
 - OAuth, đăng nhập mạng xã hội và 2FA.
 - API quản trị role/permission.
-- Catalog và quản lý sản phẩm.
-- Inventory.
 - Cart và checkout.
 - Order, payment và shipping.
 - Return và refund.
-- Voucher, review và moderation nội dung.
+- Voucher và review.
 
 ## Lưu ý bảo mật
 

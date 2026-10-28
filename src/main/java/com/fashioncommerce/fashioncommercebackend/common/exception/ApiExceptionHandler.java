@@ -76,6 +76,14 @@ public class ApiExceptionHandler {
             return error(HttpStatus.CONFLICT, "SHOP_TRANSFER_PENDING_EXISTS", "The shop already has a pending ownership transfer", request);
         if ("ix_seller_onboardings_active_user".equals(constraint))
             return error(HttpStatus.CONFLICT, "SELLER_ONBOARDING_ACTIVE_EXISTS", "An active seller onboarding already exists", request);
+        if ("uq_product_variants_shop_id_seller_sku".equals(constraint))
+            return error(HttpStatus.CONFLICT, "PRODUCT_SKU_EXISTS", "SKU already exists in this shop", request);
+        if ("uq_products_shop_id_slug".equals(constraint))
+            return error(HttpStatus.CONFLICT, "PRODUCT_SLUG_EXISTS", "Product slug already exists in this shop", request);
+        if ("ix_products_5".equals(constraint))
+            return error(HttpStatus.CONFLICT, "PRODUCT_CODE_EXISTS", "Product code already exists in this shop", request);
+        if ("ix_product_moderation_cases_open_reporter".equals(constraint))
+            return error(HttpStatus.CONFLICT, "PRODUCT_REPORT_ACTIVE_EXISTS", "You already have an active report for this product", request);
         return internal(ex, request);
     }
 
@@ -99,7 +107,8 @@ public class ApiExceptionHandler {
             for (String known : new String[]{"ix_users_3", "ix_users_4", "ix_seller_applications_3",
                     "ix_seller_applications_4", "uq_shops_owner_user_id", "uq_shops_application_id",
                     "uq_shops_slug", "uq_shop_members_shop_id_user_id", "ix_shop_ownership_transfers_pending_shop",
-                    "ix_seller_onboardings_active_user"}) {
+                    "ix_seller_onboardings_active_user", "uq_product_variants_shop_id_seller_sku",
+                    "uq_products_shop_id_slug", "ix_products_5", "ix_product_moderation_cases_open_reporter"}) {
                 if (message.contains(known)) return known;
             }
         }

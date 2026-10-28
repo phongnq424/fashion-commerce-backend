@@ -40,6 +40,10 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
                 Map.entry("seller_policy_acceptances", List.of("id", "onboarding_id", "policy_version", "accepted_at")),
                 Map.entry("audit_logs", List.of("id", "actor_user_id", "action", "changes")),
                 Map.entry("products", List.of("id", "shop_id")),
+                Map.entry("product_variants", List.of("id", "product_id", "shop_id", "seller_sku", "price_minor")),
+                Map.entry("product_images", List.of("id", "product_id", "storage_key", "is_primary")),
+                Map.entry("inventory_balances", List.of("variant_id", "shop_id", "quantity_on_hand", "quantity_reserved")),
+                Map.entry("product_moderation_cases", List.of("id", "product_id", "reporter_user_id", "reason_code", "status")),
                 Map.entry("shop_orders", List.of("id", "shop_id")),
                 Map.entry("orders", List.of("id", "buyer_id")));
         List<String> issues = new ArrayList<>();
@@ -52,7 +56,7 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
             throw new IllegalStateException("Missing flyway_schema_history; use a reviewed test migration environment");
         }
         List<String> applied = jdbc.queryForList("select version from flyway_schema_history where success", String.class);
-        List<String> missing = new ArrayList<>(List.of("1", "1.1", "2", "3", "4", "5", "6", "7", "8", "9")); missing.removeAll(applied);
+        List<String> missing = new ArrayList<>(List.of("1", "1.1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")); missing.removeAll(applied);
         if (!missing.isEmpty()) throw new IllegalStateException("Missing successful Flyway migrations: " + missing);
         if (jdbc.queryForObject("select count(*) from flyway_schema_history where not success", Integer.class) != 0) {
             throw new IllegalStateException("Failed entries in flyway_schema_history require review");
