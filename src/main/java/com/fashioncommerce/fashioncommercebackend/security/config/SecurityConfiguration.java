@@ -2,7 +2,6 @@ package com.fashioncommerce.fashioncommercebackend.security.config;
 
 import com.fashioncommerce.fashioncommercebackend.security.exception.SecurityErrorHandler;
 import com.fashioncommerce.fashioncommercebackend.security.jwt.RevokedAccessTokenRepository;
-import com.fashioncommerce.fashioncommercebackend.user.repository.UserRepository;
 import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -36,7 +35,7 @@ public class SecurityConfiguration {
     @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(12); }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityErrorHandler errors, UserRepository users,
+    SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityErrorHandler errors,
                                            RevokedAccessTokenRepository revokedAccessTokens,
                                            CorsConfigurationSource corsConfigurationSource) throws Exception {
         CorsFilter corsFilter = new CorsFilter(corsConfigurationSource);
@@ -69,8 +68,7 @@ public class SecurityConfiguration {
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
                             UUID userId = UUID.fromString(token.getSubject());
                             UUID tokenId = UUID.fromString(token.getId());
-                            if (!users.existsByIdAndStatus(userId, "ACTIVE")
-                                    || revokedAccessTokens.isRevoked(tokenId, userId)) {
+                            if (!revokedAccessTokens.isAuthenticationValid(tokenId, userId)) {
                                 throw new OAuth2AuthenticationException("invalid_token");
                             }
                             return new JwtAuthenticationToken(token, List.of(), token.getSubject());

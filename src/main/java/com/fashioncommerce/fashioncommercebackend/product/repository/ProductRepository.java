@@ -1,5 +1,6 @@
 package com.fashioncommerce.fashioncommercebackend.product.repository;
 
+import com.fashioncommerce.fashioncommercebackend.common.asset.AssetUrlResolver;
 import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -23,10 +24,12 @@ public class ProductRepository {
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final AssetUrlResolver assetUrls;
 
-    public ProductRepository(JdbcTemplate jdbc, ObjectMapper mapper) {
+    public ProductRepository(JdbcTemplate jdbc, ObjectMapper mapper, AssetUrlResolver assetUrls) {
         this.jdbc = jdbc;
         this.mapper = mapper;
+        this.assetUrls = assetUrls;
     }
 
     public List<CategoryResponse> categories() {
@@ -41,8 +44,11 @@ public class ProductRepository {
     public List<BrandResponse> brands() {
         return jdbc.query("""
                 select id,name,slug,logo_key from brands where is_active order by name
-                """, (rs, row) -> new BrandResponse(rs.getObject("id", UUID.class), rs.getString("name"),
-                rs.getString("slug"), rs.getString("logo_key")));
+                """, (rs, row) -> {
+            String logoKey = rs.getString("logo_key");
+            return new BrandResponse(rs.getObject("id", UUID.class), rs.getString("name"),
+                    rs.getString("slug"), logoKey, assetUrls.publicUrl(logoKey));
+        });
     }
 
     public boolean activeCategory(UUID id) {
@@ -67,71 +73,88 @@ public class ProductRepository {
 
         Map<String, UUID> options = new LinkedHashMap<>();
         Map<String, UUID> values = new HashMap<>();
+        List<Object[]> optionRows = new ArrayList<>();
+        List<Object[]> valueRows = new ArrayList<>();
         for (OptionRequest option : request.options()) {
             UUID optionId = UUID.randomUUID();
             String type = option.type().name();
             options.put(type, optionId);
-            jdbc.update("""
-                    insert into product_options (id,product_id,option_type,display_name,sort_order)
-                    values (?,?,?,?,?)
-                    """, optionId, productId, type, clean(option.displayName()), option.sortOrder());
+            optionRows.add(new Object[]{optionId, productId, type, clean(option.displayName()), option.sortOrder()});
             for (OptionValueRequest value : option.values()) {
                 UUID valueId = UUID.randomUUID();
                 String code = normalize(value.code());
                 values.put(type + "=" + code, valueId);
-                jdbc.update("""
-                        insert into product_option_values (id,option_id,product_id,code,label,hex_color,sort_order)
-                        values (?,?,?,?,?,?,?)
-                        """, valueId, optionId, productId, code, clean(value.label()), nullable(value.hexColor()), value.sortOrder());
+                valueRows.add(new Object[]{valueId, optionId, productId, code, clean(value.label()),
+                        nullable(value.hexColor()), value.sortOrder()});
             }
         }
+        jdbc.batchUpdate("""
+                insert into product_options (id,product_id,option_type,display_name,sort_order)
+                values (?,?,?,?,?)
+                """, optionRows);
+        jdbc.batchUpdate("""
+                insert into product_option_values (id,option_id,product_id,code,label,hex_color,sort_order)
+                values (?,?,?,?,?,?,?)
+                """, valueRows);
 
         Map<String, UUID> variants = new HashMap<>();
+        List<Object[]> variantRows = new ArrayList<>();
+        List<Object[]> selectionRows = new ArrayList<>();
+        List<Object[]> inventoryRows = new ArrayList<>();
+        List<Object[]> movementRows = new ArrayList<>();
         for (VariantRequest variant : request.variants()) {
             UUID variantId = UUID.randomUUID();
             String sku = normalize(variant.sellerSku());
             variants.put(sku, variantId);
-            jdbc.update("""
-                    insert into product_variants
-                        (id,product_id,shop_id,seller_sku,barcode,option_signature,price_minor,
-                         compare_at_price_minor,weight_grams,length_mm,width_mm,height_mm)
-                    values (?,?,?,?,?,?,?,?,?,?,?,?)
-                    """, variantId, productId, shopId, sku, nullable(variant.barcode()),
+            variantRows.add(new Object[]{variantId, productId, shopId, sku, nullable(variant.barcode()),
                     signature(variant.selections()), variant.priceMinor(), variant.compareAtPriceMinor(),
-                    variant.weightGrams(), variant.lengthMm(), variant.widthMm(), variant.heightMm());
+                    variant.weightGrams(), variant.lengthMm(), variant.widthMm(), variant.heightMm()});
             for (Map.Entry<String, String> selection : variant.selections().entrySet()) {
                 String type = normalize(selection.getKey());
                 UUID optionId = options.get(type);
                 UUID valueId = values.get(type + "=" + normalize(selection.getValue()));
-                jdbc.update("""
-                        insert into variant_option_values (variant_id,product_id,option_id,value_id)
-                        values (?,?,?,?)
-                        """, variantId, productId, optionId, valueId);
+                selectionRows.add(new Object[]{variantId, productId, optionId, valueId});
             }
-            jdbc.update("""
-                    insert into inventory_balances
-                        (variant_id,shop_id,quantity_on_hand,quantity_reserved,reorder_point)
-                    values (?,?,?,0,?)
-                    """, variantId, shopId, variant.initialStock(), variant.reorderPoint());
+            inventoryRows.add(new Object[]{variantId, shopId, variant.initialStock(), variant.reorderPoint()});
             if (variant.initialStock() > 0) {
-                jdbc.update("""
-                        insert into inventory_movements
-                            (id,variant_id,shop_id,quantity_delta,quantity_after,reason,reference_type,reference_id,performed_by,note)
-                        values (?,?,?,?,?,'STOCK_IN','PRODUCT_CREATE',?,?,?)
-                        """, UUID.randomUUID(), variantId, shopId, variant.initialStock(), variant.initialStock(),
-                        productId, actorId, "Initial product stock");
+                movementRows.add(new Object[]{UUID.randomUUID(), variantId, shopId, variant.initialStock(),
+                        variant.initialStock(), productId, actorId, "Initial product stock"});
             }
+        }
+        jdbc.batchUpdate("""
+                insert into product_variants
+                    (id,product_id,shop_id,seller_sku,barcode,option_signature,price_minor,
+                     compare_at_price_minor,weight_grams,length_mm,width_mm,height_mm)
+                values (?,?,?,?,?,?,?,?,?,?,?,?)
+                """, variantRows);
+        jdbc.batchUpdate("""
+                insert into variant_option_values (variant_id,product_id,option_id,value_id)
+                values (?,?,?,?)
+                """, selectionRows);
+        jdbc.batchUpdate("""
+                insert into inventory_balances
+                    (variant_id,shop_id,quantity_on_hand,quantity_reserved,reorder_point)
+                values (?,?,?,0,?)
+                """, inventoryRows);
+        if (!movementRows.isEmpty()) {
+            jdbc.batchUpdate("""
+                    insert into inventory_movements
+                        (id,variant_id,shop_id,quantity_delta,quantity_after,reason,reference_type,reference_id,performed_by,note)
+                    values (?,?,?,?,?,'STOCK_IN','PRODUCT_CREATE',?,?,?)
+                    """, movementRows);
         }
 
+        List<Object[]> imageRows = new ArrayList<>();
         for (ImageRequest image : request.images()) {
             UUID variantId = image.variantSellerSku() == null ? null : variants.get(normalize(image.variantSellerSku()));
-            jdbc.update("""
-                    insert into product_images
-                        (id,product_id,variant_id,storage_key,alt_text,sort_order,is_primary)
-                    values (?,?,?,?,?,?,?)
-                    """, UUID.randomUUID(), productId, variantId, clean(image.storageKey()),
-                    nullable(image.altText()), image.sortOrder(), image.primary());
+            imageRows.add(new Object[]{UUID.randomUUID(), productId, variantId, clean(image.storageKey()),
+                    nullable(image.altText()), image.sortOrder(), image.primary()});
         }
+        jdbc.batchUpdate("""
+                insert into product_images
+                    (id,product_id,variant_id,storage_key,alt_text,sort_order,is_primary)
+                values (?,?,?,?,?,?,?)
+                """, imageRows);
         return productId;
     }
 
@@ -145,7 +168,11 @@ public class ProductRepository {
     }
 
     public ProductResponse response(UUID productId) {
-        ProductRow row = row(productId).orElseThrow();
+        return response(row(productId).orElseThrow());
+    }
+
+    public ProductResponse response(ProductRow row) {
+        UUID productId = row.id();
         return new ProductResponse(row.id(), row.shopId(), row.categoryId(), row.brandId(), row.sellerProductCode(),
                 row.name(), row.slug(), row.description(), row.material(), row.fitType(), row.targetGender(),
                 row.careInstructions(), row.sizeChart(), row.version(), row.status(), row.publishedAt(), options(productId),
@@ -158,7 +185,7 @@ public class ProductRepository {
                   and exists(select 1 from product_variants v join inventory_balances b on b.variant_id=v.id
                              where v.product_id=p.id and v.status='ACTIVE')
                 """, productId)
-                .map(row -> publicResponse(response(productId)));
+                .map(row -> publicResponse(response(row)));
     }
 
     public List<ShopProductSummaryResponse> shopProducts(UUID shopId, int limitPlusOne, int offset) {
@@ -185,6 +212,7 @@ public class ProductRepository {
                 rs.getObject("id", UUID.class), rs.getObject("shop_id", UUID.class),
                 rs.getString("seller_product_code"), rs.getString("name"), rs.getString("slug"),
                 rs.getString("status"), rs.getLong("version"), rs.getString("primary_image_key"),
+                assetUrls.publicUrl(rs.getString("primary_image_key")),
                 nullableLong(rs, "min_price"), nullableLong(rs, "max_price"),
                 rs.getInt("variant_count"), rs.getInt("active_variant_count"),
                 rs.getLong("quantity_on_hand"), rs.getLong("quantity_reserved"),
@@ -248,7 +276,8 @@ public class ProductRepository {
                     rs.getObject("shop_id", UUID.class), rs.getString("shop_name"), rs.getString("shop_slug"),
                     rs.getObject("category_id", UUID.class), rs.getObject("brand_id", UUID.class),
                     rs.getString("name"), rs.getString("slug"), rs.getString("target_gender"),
-                    rs.getString("primary_image_key"), rs.getLong("summary_min_price"),
+                    rs.getString("primary_image_key"), assetUrls.publicUrl(rs.getString("primary_image_key")),
+                    rs.getLong("summary_min_price"),
                     rs.getLong("max_price"), nullableLong(rs, "compare_at_price"),
                     rs.getInt("variant_count"), rs.getLong("available_quantity"),
                     instant(rs, "published_at"));
@@ -350,12 +379,13 @@ public class ProductRepository {
                 """, variantId, productId, shopId, normalize(request.sellerSku()), nullable(request.barcode()),
                 signature(request.selections()), request.priceMinor(), request.compareAtPriceMinor(),
                 request.weightGrams(), request.lengthMm(), request.widthMm(), request.heightMm());
-        for (OptionSelection selection : selections.values()) {
-            jdbc.update("""
-                    insert into variant_option_values (variant_id,product_id,option_id,value_id)
-                    values (?,?,?,?)
-                    """, variantId, productId, selection.optionId(), selection.valueId());
-        }
+        List<Object[]> selectionRows = selections.values().stream()
+                .map(selection -> new Object[]{variantId, productId, selection.optionId(), selection.valueId()})
+                .toList();
+        jdbc.batchUpdate("""
+                insert into variant_option_values (variant_id,product_id,option_id,value_id)
+                values (?,?,?,?)
+                """, selectionRows);
         jdbc.update("""
                 insert into inventory_balances
                     (variant_id,shop_id,quantity_on_hand,quantity_reserved,reorder_point)
@@ -447,9 +477,8 @@ public class ProductRepository {
     }
 
     public void reorderImages(List<ImageOrderItem> items) {
-        for (ImageOrderItem item : items) {
-            jdbc.update("update product_images set sort_order=? where id=?", item.sortOrder(), item.imageId());
-        }
+        jdbc.batchUpdate("update product_images set sort_order=? where id=?",
+                items.stream().map(item -> new Object[]{item.sortOrder(), item.imageId()}).toList());
     }
 
     public void setPrimaryImage(UUID productId, ImageRow image) {
@@ -544,54 +573,84 @@ public class ProductRepository {
     }
 
     private List<OptionResponse> options(UUID productId) {
-        return jdbc.query("""
-                select id,option_type,display_name,sort_order from product_options
-                where product_id=? order by sort_order,option_type
-                """, (rs, row) -> {
-            UUID optionId = rs.getObject("id", UUID.class);
-            List<OptionValueResponse> values = jdbc.query("""
-                    select id,code,label,hex_color,sort_order from product_option_values
-                    where option_id=? order by sort_order,code
-                    """, (valueRs, valueRow) -> new OptionValueResponse(valueRs.getObject("id", UUID.class),
-                    valueRs.getString("code"), valueRs.getString("label"), valueRs.getString("hex_color"),
-                    valueRs.getInt("sort_order")), optionId);
-            return new OptionResponse(optionId, rs.getString("option_type"), rs.getString("display_name"),
-                    rs.getInt("sort_order"), values);
-        }, productId);
+        List<OptionJoinRow> rows = jdbc.query("""
+                select o.id option_id,o.option_type,o.display_name,o.sort_order option_sort_order,
+                       v.id value_id,v.code value_code,v.label value_label,v.hex_color,
+                       v.sort_order value_sort_order
+                from product_options o
+                left join product_option_values v on v.option_id=o.id
+                where o.product_id=?
+                order by o.sort_order,o.option_type,v.sort_order,v.code
+                """, (rs, row) -> new OptionJoinRow(
+                rs.getObject("option_id", UUID.class), rs.getString("option_type"),
+                rs.getString("display_name"), rs.getInt("option_sort_order"),
+                rs.getObject("value_id", UUID.class), rs.getString("value_code"),
+                rs.getString("value_label"), rs.getString("hex_color"),
+                nullableInt(rs, "value_sort_order")), productId);
+
+        Map<UUID, OptionHeader> headers = new LinkedHashMap<>();
+        Map<UUID, List<OptionValueResponse>> values = new LinkedHashMap<>();
+        for (OptionJoinRow row : rows) {
+            headers.putIfAbsent(row.optionId(), new OptionHeader(row.optionId(), row.type(),
+                    row.displayName(), row.sortOrder()));
+            values.computeIfAbsent(row.optionId(), ignored -> new ArrayList<>());
+            if (row.valueId() != null) {
+                values.get(row.optionId()).add(new OptionValueResponse(row.valueId(), row.valueCode(),
+                        row.valueLabel(), row.hexColor(), row.valueSortOrder()));
+            }
+        }
+        return headers.values().stream().map(header -> new OptionResponse(header.id(), header.type(),
+                header.displayName(), header.sortOrder(), List.copyOf(values.get(header.id())))).toList();
     }
 
     private List<VariantResponse> variants(UUID productId) {
-        return jdbc.query("""
+        List<VariantJoinRow> rows = jdbc.query("""
                 select v.id,v.seller_sku,v.barcode,v.price_minor,v.compare_at_price_minor,v.weight_grams,
-                       v.length_mm,v.width_mm,v.height_mm,v.status,b.quantity_on_hand,b.quantity_reserved,b.reorder_point
+                       v.length_mm,v.width_mm,v.height_mm,v.status,b.quantity_on_hand,b.quantity_reserved,b.reorder_point,
+                       o.option_type selection_type,ov.code selection_code
                 from product_variants v join inventory_balances b on b.variant_id=v.id
-                where v.product_id=? order by v.created_at
-                """, (rs, row) -> {
-            UUID variantId = rs.getObject("id", UUID.class);
-            Map<String, String> selections = new LinkedHashMap<>();
-            jdbc.query("""
-                    select o.option_type,v.code from variant_option_values x
-                    join product_options o on o.id=x.option_id
-                    join product_option_values v on v.id=x.value_id
-                    where x.variant_id=? order by o.option_type
-                    """, (org.springframework.jdbc.core.RowCallbackHandler) valueRs ->
-                    selections.put(valueRs.getString(1), valueRs.getString(2)), variantId);
-            int onHand = rs.getInt("quantity_on_hand");
-            int reserved = rs.getInt("quantity_reserved");
-            return new VariantResponse(variantId, rs.getString("seller_sku"), rs.getString("barcode"), selections,
-                    rs.getLong("price_minor"), nullableLong(rs, "compare_at_price_minor"), rs.getInt("weight_grams"),
-                    nullableInt(rs, "length_mm"), nullableInt(rs, "width_mm"), nullableInt(rs, "height_mm"),
-                    rs.getString("status"), onHand, reserved, onHand - reserved, rs.getInt("reorder_point"));
-        }, productId);
+                left join variant_option_values x on x.variant_id=v.id
+                left join product_options o on o.id=x.option_id
+                left join product_option_values ov on ov.id=x.value_id
+                where v.product_id=? order by v.created_at,o.option_type
+                """, (rs, row) -> new VariantJoinRow(
+                rs.getObject("id", UUID.class), rs.getString("seller_sku"), rs.getString("barcode"),
+                rs.getLong("price_minor"), nullableLong(rs, "compare_at_price_minor"),
+                rs.getInt("weight_grams"), nullableInt(rs, "length_mm"), nullableInt(rs, "width_mm"),
+                nullableInt(rs, "height_mm"), rs.getString("status"), rs.getInt("quantity_on_hand"),
+                rs.getInt("quantity_reserved"), rs.getInt("reorder_point"),
+                rs.getString("selection_type"), rs.getString("selection_code")), productId);
+
+        Map<UUID, VariantHeader> headers = new LinkedHashMap<>();
+        Map<UUID, Map<String, String>> selections = new LinkedHashMap<>();
+        for (VariantJoinRow row : rows) {
+            headers.putIfAbsent(row.id(), new VariantHeader(row.id(), row.sellerSku(), row.barcode(),
+                    row.priceMinor(), row.compareAtPriceMinor(), row.weightGrams(), row.lengthMm(),
+                    row.widthMm(), row.heightMm(), row.status(), row.quantityOnHand(),
+                    row.quantityReserved(), row.reorderPoint()));
+            selections.computeIfAbsent(row.id(), ignored -> new LinkedHashMap<>());
+            if (row.selectionType() != null) selections.get(row.id()).put(row.selectionType(), row.selectionCode());
+        }
+        return headers.values().stream().map(header -> {
+            int available = header.quantityOnHand() - header.quantityReserved();
+            return new VariantResponse(header.id(), header.sellerSku(), header.barcode(),
+                    Collections.unmodifiableMap(selections.get(header.id())), header.priceMinor(),
+                    header.compareAtPriceMinor(), header.weightGrams(), header.lengthMm(), header.widthMm(),
+                    header.heightMm(), header.status(), header.quantityOnHand(), header.quantityReserved(),
+                    available, header.reorderPoint());
+        }).toList();
     }
 
     private List<ImageResponse> images(UUID productId) {
         return jdbc.query("""
                 select id,variant_id,storage_key,alt_text,sort_order,is_primary from product_images
                 where product_id=? order by sort_order,created_at
-                """, (rs, row) -> new ImageResponse(rs.getObject("id", UUID.class),
-                rs.getObject("variant_id", UUID.class), rs.getString("storage_key"), rs.getString("alt_text"),
-                rs.getInt("sort_order"), rs.getBoolean("is_primary")), productId);
+                """, (rs, row) -> {
+            String storageKey = rs.getString("storage_key");
+            return new ImageResponse(rs.getObject("id", UUID.class),
+                    rs.getObject("variant_id", UUID.class), storageKey, assetUrls.publicUrl(storageKey),
+                    rs.getString("alt_text"), rs.getInt("sort_order"), rs.getBoolean("is_primary"));
+        }, productId);
     }
 
     private PublicProductResponse publicResponse(ProductResponse product) {
@@ -681,6 +740,20 @@ public class ProductRepository {
     private static Long nullableLong(ResultSet rs, String column) throws SQLException {
         long value = rs.getLong(column); return rs.wasNull() ? null : value;
     }
+
+    private record OptionJoinRow(UUID optionId, String type, String displayName, int sortOrder,
+                                 UUID valueId, String valueCode, String valueLabel,
+                                 String hexColor, Integer valueSortOrder) { }
+    private record OptionHeader(UUID id, String type, String displayName, int sortOrder) { }
+    private record VariantJoinRow(UUID id, String sellerSku, String barcode, long priceMinor,
+                                  Long compareAtPriceMinor, int weightGrams, Integer lengthMm,
+                                  Integer widthMm, Integer heightMm, String status,
+                                  int quantityOnHand, int quantityReserved, int reorderPoint,
+                                  String selectionType, String selectionCode) { }
+    private record VariantHeader(UUID id, String sellerSku, String barcode, long priceMinor,
+                                 Long compareAtPriceMinor, int weightGrams, Integer lengthMm,
+                                 Integer widthMm, Integer heightMm, String status,
+                                 int quantityOnHand, int quantityReserved, int reorderPoint) { }
 
     public record ProductRow(UUID id, UUID shopId, UUID categoryId, UUID brandId, String sellerProductCode,
                              String name, String slug, String description, String material, String fitType,

@@ -71,7 +71,7 @@ public class ProductService {
     public ProductResponse shopProduct(UUID shopId, UUID productId) {
         ProductRow row = required(productId);
         if (!row.shopId().equals(shopId)) throw notFound();
-        return products.response(productId);
+        return products.response(row);
     }
 
     @Transactional(readOnly = true)

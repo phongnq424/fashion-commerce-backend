@@ -226,7 +226,8 @@ class FashionCommerceBackendApplicationTests {
                 address.addressLine1(), address.addressLine2(), address.ward(), address.district(),
                 address.province(), address.provinceCode(), address.postalCode(), address.countryCode());
         CheckoutItemSnapshot item = new CheckoutItemSnapshot(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                "Integration Product", "IT-SKU", Map.of("SIZE", "M"), "integration/main.jpg", 100_000, 2, 200_000);
+                "Integration Product", "IT-SKU", Map.of("SIZE", "M"), "integration/main.jpg",
+                "https://cdn.example/integration/main.jpg", 100_000, 2, 200_000);
         CheckoutShopSnapshot shop = new CheckoutShopSnapshot(UUID.randomUUID(), "Integration Shop", "integration-shop",
                 200_000, 30_000, 230_000, List.of(item));
         UUID snapshotId = commerce.createCheckoutSnapshot(buyer.id(), cart.id(), cart.version(), recipient,

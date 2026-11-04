@@ -88,19 +88,18 @@ class SecurityHttpTests {
     }
     @Test void revokedAccessTokenIsRejectedEvenWithValidSignature() throws Exception {
         UUID tokenId = UUID.randomUUID();
-        when(users.existsByIdAndStatus(userId, "ACTIVE")).thenReturn(true);
-        when(revokedAccessTokens.isRevoked(tokenId, userId)).thenReturn(true);
+        when(revokedAccessTokens.isAuthenticationValid(tokenId, userId)).thenReturn(false);
         mvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer "
                         + access(Instant.now().plusSeconds(900), tokenId)))
                 .andExpect(status().isUnauthorized());
     }
     @Test void authenticatedUserWithoutPermissionGets403() throws Exception {
-        when(users.existsByIdAndStatus(userId, "ACTIVE")).thenReturn(true);
+        when(revokedAccessTokens.isAuthenticationValid(any(), eq(userId))).thenReturn(true);
         mvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + access(Instant.now().plusSeconds(900))))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
     }
     @Test void meUsesAuthenticatedIdentityAndDatabaseRoles() throws Exception {
-        when(users.existsByIdAndStatus(userId, "ACTIVE")).thenReturn(true);
+        when(revokedAccessTokens.isAuthenticationValid(any(), eq(userId))).thenReturn(true);
         when(authorization.hasPlatformPermission(userId, "account.read_own")).thenReturn(true);
         when(users.findById(userId)).thenReturn(Optional.of(new User(userId, "me@example.com", null, "Me", Instant.now())));
         when(authorization.platformRoles(userId)).thenReturn(List.of("CUSTOMER", "PLATFORM_MODERATOR"));
@@ -136,7 +135,7 @@ class SecurityHttpTests {
         Instant expiresAt = Instant.now().plusSeconds(900).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
         mvc.perform(post("/api/v1/auth/logout").contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
-        when(users.existsByIdAndStatus(userId, "ACTIVE")).thenReturn(true);
+        when(revokedAccessTokens.isAuthenticationValid(tokenId, userId)).thenReturn(true);
         mvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer " + access(expiresAt, tokenId)).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isNoContent());
         verify(authentication).logout(eq(userId), eq(tokenId), eq(expiresAt), any());
     }

@@ -30,6 +30,9 @@ security:
   refresh-ttl: ${REFRESH_TOKEN_TTL:14d}
   cors-origins: ${CORS_ALLOWED_ORIGINS:}
 
+assets:
+  public-base-url: ${ASSET_PUBLIC_BASE_URL:}
+
 server:
   error:
     include-message: never

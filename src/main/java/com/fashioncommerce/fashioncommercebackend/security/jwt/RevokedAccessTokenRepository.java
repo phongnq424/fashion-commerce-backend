@@ -23,6 +23,19 @@ public class RevokedAccessTokenRepository {
                 """, Boolean.class, tokenId, userId));
     }
 
+    public boolean isAuthenticationValid(UUID tokenId, UUID userId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists (
+                    select 1 from users u
+                    where u.id = ? and u.status = 'ACTIVE'
+                      and not exists (
+                          select 1 from revoked_access_tokens r
+                          where r.token_id = ? and r.user_id = u.id and r.expires_at > now()
+                      )
+                )
+                """, Boolean.class, userId, tokenId));
+    }
+
     public void revoke(UUID tokenId, UUID userId, Instant expiresAt, Instant revokedAt) {
         jdbc.update("delete from revoked_access_tokens where expires_at <= ?", revokedAt);
         jdbc.update("""

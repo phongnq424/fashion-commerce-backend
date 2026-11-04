@@ -144,7 +144,7 @@ public final class ProductDtos {
                                   long priceMinor, Long compareAtPriceMinor, int weightGrams,
                                   Integer lengthMm, Integer widthMm, Integer heightMm, String status,
                                   int quantityOnHand, int quantityReserved, int availableQuantity, int reorderPoint) { }
-    public record ImageResponse(UUID id, UUID variantId, String storageKey, String altText,
+    public record ImageResponse(UUID id, UUID variantId, String storageKey, String url, String altText,
                                 int sortOrder, boolean primary) { }
 
     public record ProductResponse(
@@ -157,7 +157,7 @@ public final class ProductDtos {
 
     public record ShopProductSummaryResponse(
             UUID id, UUID shopId, String sellerProductCode, String name, String slug,
-            String status, long version, String primaryImageKey,
+            String status, long version, String primaryImageKey, String primaryImageUrl,
             Long minPriceMinor, Long maxPriceMinor, int variantCount, int activeVariantCount,
             long quantityOnHand, long quantityReserved, Instant publishedAt, Instant updatedAt) { }
 
@@ -175,7 +175,7 @@ public final class ProductDtos {
     public record PublicProductSummaryResponse(
             UUID id, UUID shopId, String shopName, String shopSlug,
             UUID categoryId, UUID brandId, String name, String slug, String targetGender,
-            String primaryImageKey, long minPriceMinor, long maxPriceMinor,
+            String primaryImageKey, String primaryImageUrl, long minPriceMinor, long maxPriceMinor,
             Long compareAtPriceMinor, int variantCount, long availableQuantity,
             Instant publishedAt) { }
 
@@ -186,7 +186,7 @@ public final class ProductDtos {
             ProductSort sort, String cursor, int limit) { }
 
     public record CategoryResponse(UUID id, UUID parentId, String name, String slug, String description) { }
-    public record BrandResponse(UUID id, String name, String slug, String logoKey) { }
+    public record BrandResponse(UUID id, String name, String slug, String logoKey, String logoUrl) { }
 
     public enum ReportReason { COUNTERFEIT, PROHIBITED, MISLEADING, COPYRIGHT, INAPPROPRIATE, OTHER }
     public record ReportProductRequest(

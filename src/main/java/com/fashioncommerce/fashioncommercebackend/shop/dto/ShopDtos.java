@@ -63,7 +63,9 @@ public final class ShopDtos {
             String slug,
             String description,
             String logoKey,
+            String logoUrl,
             String bannerKey,
+            String bannerUrl,
             String contactEmail,
             String contactPhone,
             Map<String, Object> pickupAddress,
@@ -74,7 +76,7 @@ public final class ShopDtos {
             Instant updatedAt) { }
 
     public record ShopSummaryResponse(
-            UUID id, UUID ownerUserId, String name, String slug, String logoKey,
+            UUID id, UUID ownerUserId, String name, String slug, String logoKey, String logoUrl,
             String status, Instant activatedAt, Instant suspendedAt,
             Instant createdAt, Instant updatedAt) { }
 

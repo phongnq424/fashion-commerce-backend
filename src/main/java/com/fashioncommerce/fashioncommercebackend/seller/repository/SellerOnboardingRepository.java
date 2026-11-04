@@ -1,5 +1,6 @@
 package com.fashioncommerce.fashioncommercebackend.seller.repository;
 
+import com.fashioncommerce.fashioncommercebackend.common.asset.AssetUrlResolver;
 import com.fashioncommerce.fashioncommercebackend.seller.dto.SellerOnboardingDtos.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -23,10 +24,12 @@ public class SellerOnboardingRepository {
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final AssetUrlResolver assetUrls;
 
-    public SellerOnboardingRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public SellerOnboardingRepository(JdbcTemplate jdbc, ObjectMapper objectMapper, AssetUrlResolver assetUrls) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.assetUrls = assetUrls;
     }
 
     public OnboardingRow create(UUID userId, ShopProfileRequest request, String slug) {
@@ -182,12 +185,11 @@ public class SellerOnboardingRepository {
     public void configureShipping(UUID onboardingId, UUID shopId, UUID addressId,
                                   Collection<ShippingSelection> selections, Map<String, UUID> providerIds) {
         jdbc.update("delete from shop_shipping_configs where shop_id=?", shopId);
-        for (ShippingSelection selection : selections) {
-            jdbc.update("""
-                    insert into shop_shipping_configs (shop_id, provider_id, pickup_address_id, is_enabled)
-                    values (?, ?, ?, ?)
-                    """, shopId, providerIds.get(normalizeCode(selection.providerCode())), addressId, selection.enabled());
-        }
+        jdbc.batchUpdate("""
+                insert into shop_shipping_configs (shop_id, provider_id, pickup_address_id, is_enabled)
+                values (?, ?, ?, ?)
+                """, selections.stream().map(selection -> new Object[]{shopId,
+                providerIds.get(normalizeCode(selection.providerCode())), addressId, selection.enabled()}).toList());
         jdbc.update("update seller_onboardings set shipping_completed_at=now() where id=?", onboardingId);
     }
 
@@ -410,9 +412,12 @@ public class SellerOnboardingRepository {
 
     private OnboardingRow mapRow(ResultSet rs, int row) throws SQLException {
         UUID shopId = rs.getObject("shop_id", UUID.class);
+        String avatarKey = rs.getString("logo_key");
+        String coverKey = rs.getString("banner_key");
         ShopProfileResponse shop = new ShopProfileResponse(shopId, rs.getString("name"), rs.getString("slug"),
-                rs.getString("contact_email"), rs.getString("contact_phone"), rs.getString("logo_key"),
-                rs.getString("description"), rs.getString("banner_key"), rs.getString("shop_status"));
+                rs.getString("contact_email"), rs.getString("contact_phone"), avatarKey,
+                assetUrls.publicUrl(avatarKey), rs.getString("description"), coverKey,
+                assetUrls.publicUrl(coverKey), rs.getString("shop_status"));
         return new OnboardingRow(rs.getObject("id", UUID.class), rs.getObject("applicant_user_id", UUID.class),
                 shopId, rs.getString("status"), shop, instant(rs, "submitted_at"),
                 rs.getObject("reviewed_by", UUID.class), instant(rs, "reviewed_at"), rs.getString("review_note"),

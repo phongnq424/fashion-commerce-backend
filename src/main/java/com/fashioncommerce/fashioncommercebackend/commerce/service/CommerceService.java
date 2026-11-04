@@ -3,6 +3,7 @@ package com.fashioncommerce.fashioncommercebackend.commerce.service;
 import com.fashioncommerce.fashioncommercebackend.commerce.dto.CommerceDtos.*;
 import com.fashioncommerce.fashioncommercebackend.commerce.repository.CommerceRepository;
 import com.fashioncommerce.fashioncommercebackend.commerce.repository.CommerceRepository.*;
+import com.fashioncommerce.fashioncommercebackend.common.asset.AssetUrlResolver;
 import com.fashioncommerce.fashioncommercebackend.common.exception.ApiException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -18,9 +19,11 @@ import java.util.stream.Collectors;
 public class CommerceService {
     private static final int MAX_DISTINCT_ITEMS = 100;
     private final CommerceRepository commerce;
+    private final AssetUrlResolver assetUrls;
 
-    public CommerceService(CommerceRepository commerce) {
+    public CommerceService(CommerceRepository commerce, AssetUrlResolver assetUrls) {
         this.commerce = commerce;
+        this.assetUrls = assetUrls;
     }
 
     @Transactional
@@ -179,7 +182,8 @@ public class CommerceService {
 
     private CartItemResponse cartItemResponse(CartItemRow item) {
         return new CartItemResponse(item.id(), item.variantId(), item.productId(), item.productName(),
-                item.productSlug(), item.sellerSku(), item.options(), item.imageKey(), item.priceMinor(),
+                item.productSlug(), item.sellerSku(), item.options(), item.imageKey(),
+                assetUrls.publicUrl(item.imageKey()), item.priceMinor(),
                 item.compareAtPriceMinor(), item.quantity(), item.selected(), Math.max(0, item.availableQuantity()),
                 availability(item));
     }
@@ -188,7 +192,8 @@ public class CommerceService {
         CartItemRow first = items.getFirst();
         List<CheckoutItemSnapshot> snapshots = items.stream().map(item -> new CheckoutItemSnapshot(
                 item.id(), item.variantId(), item.productId(), item.productName(), item.sellerSku(),
-                item.options(), item.imageKey(), item.priceMinor(), item.quantity(),
+                item.options(), item.imageKey(), assetUrls.publicUrl(item.imageKey()),
+                item.priceMinor(), item.quantity(),
                 Math.multiplyExact(item.priceMinor(), item.quantity()))).toList();
         long subtotal = snapshots.stream().mapToLong(CheckoutItemSnapshot::lineSubtotalMinor).sum();
         long shippingFee = first.defaultShippingFeeMinor();

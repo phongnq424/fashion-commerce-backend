@@ -69,7 +69,8 @@ class ShopServiceTests {
 
     private ShopResponse shop(UUID shopId, UUID ownerId) {
         Instant now = Instant.now(clock);
-        return new ShopResponse(shopId, ownerId, UUID.randomUUID(), "My Shop", "my-shop", null, null, null,
+        return new ShopResponse(shopId, ownerId, UUID.randomUUID(), "My Shop", "my-shop", null,
+                null, null, null, null,
                 "shop@example.com", "+84901234567", Map.of("province", "HCM"), "ACTIVE", now, null, now, now);
     }
 

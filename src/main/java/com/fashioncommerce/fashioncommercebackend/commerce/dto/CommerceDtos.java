@@ -30,7 +30,7 @@ public final class CommerceDtos {
 
     public record CartItemResponse(
             UUID id, UUID variantId, UUID productId, String productName, String productSlug,
-            String sellerSku, Map<String, String> options, String imageKey,
+            String sellerSku, Map<String, String> options, String imageKey, String imageUrl,
             long unitPriceMinor, Long compareAtPriceMinor, int quantity, boolean selected,
             int availableQuantity, CartAvailability availability) { }
 
@@ -62,7 +62,7 @@ public final class CommerceDtos {
 
     public record CheckoutItemSnapshot(
             UUID cartItemId, UUID variantId, UUID productId, String productName,
-            String sellerSku, Map<String, String> options, String imageKey,
+            String sellerSku, Map<String, String> options, String imageKey, String imageUrl,
             long unitPriceMinor, int quantity, long lineSubtotalMinor) { }
 
     public record CheckoutShopSnapshot(

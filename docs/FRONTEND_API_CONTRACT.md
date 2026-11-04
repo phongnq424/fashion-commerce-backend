@@ -10,7 +10,10 @@ voucher, review, return và refund chưa có controller nghiệp vụ.
 - Request JSON gửi `Content-Type: application/json`.
 - UUID và thời gian được trả dưới dạng string; thời gian dùng ISO-8601 UTC.
 - Các field `*Minor` là số nguyên tiền VND. Ví dụ `199000` tương ứng `199.000đ`.
-- `imageKey`, `logoKey`, `bannerKey`, `documentKey` là storage key, chưa phải public URL.
+- `imageKey`, `logoKey`, `bannerKey`, `documentKey` vẫn là giá trị lưu trong storage. Khi response có
+  field `url`/`*Url`, frontend dùng field đó để hiển thị trực tiếp.
+- Trong giai đoạn chưa tích hợp upload, frontend có thể gửi URL `http://` hoặc `https://` (ví dụ Cloudinary)
+  vào `storageKey`; backend sẽ trả lại URL đó trong field `url`/`*Url` tương ứng.
 - Các response `204 No Content` không có body.
 
 ### Error response
@@ -237,7 +240,8 @@ interface PolicyAcceptanceRequest {
 ```ts
 interface ShopProfileResponse {
   shopId: string; name: string; slug: string; email: string; phone: string;
-  avatarKey: string | null; description: string | null; coverKey: string | null; status: string;
+  avatarKey: string | null; avatarUrl: string | null; description: string | null;
+  coverKey: string | null; coverUrl: string | null; status: string;
 }
 
 interface PickupAddressResponse {
@@ -372,13 +376,15 @@ interface UpdateMemberRolesRequest { roles: string[] }
 ```ts
 interface ShopResponse {
   id: string; ownerUserId: string; applicationId: string; name: string; slug: string;
-  description: string | null; logoKey: string | null; bannerKey: string | null;
+  description: string | null; logoKey: string | null; logoUrl: string | null;
+  bannerKey: string | null; bannerUrl: string | null;
   contactEmail: string; contactPhone: string; pickupAddress: Record<string, unknown>;
   status: string; activatedAt: string; suspendedAt: string | null; createdAt: string; updatedAt: string;
 }
 
 interface ShopSummaryResponse {
-  id: string; ownerUserId: string; name: string; slug: string; logoKey: string | null;
+  id: string; ownerUserId: string; name: string; slug: string;
+  logoKey: string | null; logoUrl: string | null;
   status: string; activatedAt: string | null; suspendedAt: string | null;
   createdAt: string; updatedAt: string;
 }
@@ -481,7 +487,10 @@ GET /products
 
 ```ts
 interface CategoryResponse { id: string; parentId: string | null; name: string; slug: string; description: string | null }
-interface BrandResponse { id: string; name: string; slug: string; logoKey: string | null }
+interface BrandResponse {
+  id: string; name: string; slug: string;
+  logoKey: string | null; logoUrl: string | null;
+}
 
 interface ReportProductRequest {
   reason: "COUNTERFEIT" | "PROHIBITED" | "MISLEADING" | "COPYRIGHT" | "INAPPROPRIATE" | "OTHER";
@@ -500,7 +509,7 @@ interface OptionResponse {
 }
 
 interface ImageResponse {
-  id: string; variantId: string | null; storageKey: string; altText: string | null;
+  id: string; variantId: string | null; storageKey: string; url: string | null; altText: string | null;
   sortOrder: number; primary: boolean;
 }
 
@@ -520,7 +529,8 @@ interface PublicProductResponse {
 interface PublicProductSummaryResponse {
   id: string; shopId: string; shopName: string; shopSlug: string;
   categoryId: string; brandId: string | null; name: string; slug: string; targetGender: string;
-  primaryImageKey: string | null; minPriceMinor: number; maxPriceMinor: number;
+  primaryImageKey: string | null; primaryImageUrl: string | null;
+  minPriceMinor: number; maxPriceMinor: number;
   compareAtPriceMinor: number | null; variantCount: number; availableQuantity: number;
   publishedAt: string;
 }
@@ -547,6 +557,9 @@ interface PublicProductSummaryResponse {
 | PUT | `/shops/{shopId}/products/variants/{variantId}/inventory` | `InventoryRequest` | `200 ProductResponse` |
 
 Product create payload:
+
+Hiện tại chưa có upload API. Có thể dùng URL ảnh có sẵn bằng cách gửi URL đó trong `storageKey`, ví dụ
+`"storageKey": "https://res.cloudinary.com/demo/image/upload/sample.jpg"`.
 
 ```ts
 interface CreateProductRequest {
@@ -677,7 +690,7 @@ interface ProductResponse {
 
 interface ShopProductSummaryResponse {
   id: string; shopId: string; sellerProductCode: string | null; name: string; slug: string;
-  status: string; version: number; primaryImageKey: string | null;
+  status: string; version: number; primaryImageKey: string | null; primaryImageUrl: string | null;
   minPriceMinor: number | null; maxPriceMinor: number | null;
   variantCount: number; activeVariantCount: number;
   quantityOnHand: number; quantityReserved: number;
@@ -753,6 +766,7 @@ interface CartItemResponse {
   sellerSku: string;
   options: Record<string, string>;
   imageKey: string | null;
+  imageUrl: string | null;
   unitPriceMinor: number;
   compareAtPriceMinor: number | null;
   quantity: number;
@@ -833,6 +847,7 @@ interface CheckoutPreviewResponse {
       sellerSku: string;
       options: Record<string, string>;
       imageKey: string | null;
+      imageUrl: string | null;
       unitPriceMinor: number;
       quantity: number;
       lineSubtotalMinor: number;

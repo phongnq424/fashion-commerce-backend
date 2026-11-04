@@ -95,6 +95,7 @@ JWT_ACCESS_TTL=15m
 REFRESH_TOKEN_TTL=14d
 
 CORS_ALLOWED_ORIGINS=
+ASSET_PUBLIC_BASE_URL=
 ```
 
 `JWT_SECRET_BASE64` phải là chuỗi Base64 của ít nhất 32 byte ngẫu nhiên. Có thể tạo khóa trong PowerShell:

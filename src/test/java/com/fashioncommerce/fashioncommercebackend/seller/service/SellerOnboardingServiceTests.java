@@ -124,7 +124,7 @@ class SellerOnboardingServiceTests {
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         return new OnboardingRow(id, userId, shopId, status,
                 new ShopProfileResponse(shopId, "Shop", "shop-12345678", "shop@example.com",
-                        "+84901234567", null, null, null, "DRAFT"),
+                        "+84901234567", null, null, null, null, null, "DRAFT"),
                 null, null, null, null, null, now, now);
     }
 

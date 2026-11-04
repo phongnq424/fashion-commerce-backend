@@ -3,6 +3,7 @@ package com.fashioncommerce.fashioncommercebackend.commerce.service;
 import com.fashioncommerce.fashioncommercebackend.commerce.dto.CommerceDtos.*;
 import com.fashioncommerce.fashioncommercebackend.commerce.repository.CommerceRepository;
 import com.fashioncommerce.fashioncommercebackend.commerce.repository.CommerceRepository.*;
+import com.fashioncommerce.fashioncommercebackend.common.asset.AssetUrlResolver;
 import com.fashioncommerce.fashioncommercebackend.common.exception.ApiException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import static org.mockito.Mockito.*;
 
 class CommerceServiceTests {
     private final CommerceRepository commerce = mock(CommerceRepository.class);
+    private final AssetUrlResolver assetUrls = mock(AssetUrlResolver.class);
     private CommerceService service;
     private final UUID buyerId = UUID.randomUUID();
     private final UUID cartId = UUID.randomUUID();
@@ -23,8 +25,12 @@ class CommerceServiceTests {
 
     @BeforeEach
     void setUp() {
-        reset(commerce);
-        service = new CommerceService(commerce);
+        reset(commerce, assetUrls);
+        when(assetUrls.publicUrl(any())).thenAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            return key == null ? null : "https://cdn.example/" + key;
+        });
+        service = new CommerceService(commerce, assetUrls);
     }
 
     @Test

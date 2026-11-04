@@ -22,7 +22,8 @@ public final class SellerOnboardingDtos {
 
     public record ShopProfileResponse(
             UUID shopId, String name, String slug, String email, String phone,
-            String avatarKey, String description, String coverKey, String status) { }
+            String avatarKey, String avatarUrl, String description,
+            String coverKey, String coverUrl, String status) { }
 
     public record PickupAddressRequest(
             @NotBlank @Size(max = 120) String contactName,

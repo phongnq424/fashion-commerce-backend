@@ -1,5 +1,6 @@
 package com.fashioncommerce.fashioncommercebackend.shop.repository;
 
+import com.fashioncommerce.fashioncommercebackend.common.asset.AssetUrlResolver;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -26,10 +27,12 @@ public class ShopRepository {
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final AssetUrlResolver assetUrls;
 
-    public ShopRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public ShopRepository(JdbcTemplate jdbc, ObjectMapper objectMapper, AssetUrlResolver assetUrls) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.assetUrls = assetUrls;
     }
 
     public Optional<ShopResponse> find(UUID shopId) {
@@ -167,34 +170,49 @@ public class ShopRepository {
     }
 
     public List<MemberResponse> members(UUID shopId, int limitPlusOne, int offset) {
-        List<MemberResponse> members = jdbc.query("""
+        return jdbc.query("""
                 select sm.id, sm.user_id, u.email, u.display_name, sm.status, sm.invited_by,
-                       sm.joined_at, sm.created_at
+                       sm.joined_at, sm.created_at,
+                       coalesce(array_agg(r.code order by r.code) filter (where r.code is not null),
+                                array[]::varchar[]) roles
                 from shop_members sm join users u on u.id = sm.user_id
-                where sm.shop_id = ? order by sm.created_at limit ? offset ?
-                """, (rs, row) -> mapMemberResponse(rs, shopId), shopId, limitPlusOne, offset);
-        return members;
+                left join shop_member_roles smr on smr.member_id=sm.id
+                left join roles r on r.id=smr.role_id and r.scope='SHOP'
+                where sm.shop_id = ?
+                group by sm.id,sm.user_id,u.email,u.display_name,sm.status,sm.invited_by,sm.joined_at,sm.created_at
+                order by sm.created_at limit ? offset ?
+                """, this::mapMemberResponse, shopId, limitPlusOne, offset);
     }
 
     public Optional<MemberResponse> member(UUID shopId, UUID memberId) {
         return jdbc.query("""
                 select sm.id, sm.user_id, u.email, u.display_name, sm.status, sm.invited_by,
-                       sm.joined_at, sm.created_at
+                       sm.joined_at, sm.created_at,
+                       coalesce(array_agg(r.code order by r.code) filter (where r.code is not null),
+                                array[]::varchar[]) roles
                 from shop_members sm join users u on u.id = sm.user_id
+                left join shop_member_roles smr on smr.member_id=sm.id
+                left join roles r on r.id=smr.role_id and r.scope='SHOP'
                 where sm.shop_id = ? and sm.id = ?
-                """, (rs, row) -> mapMemberResponse(rs, shopId), shopId, memberId).stream().findFirst();
+                group by sm.id,sm.user_id,u.email,u.display_name,sm.status,sm.invited_by,sm.joined_at,sm.created_at
+                """, this::mapMemberResponse, shopId, memberId).stream().findFirst();
     }
 
     public List<InvitationResponse> invitations(UUID userId) {
         return jdbc.query("""
-                select sm.id, sm.shop_id, s.name, sm.invited_by, sm.created_at
+                select sm.id, sm.shop_id, s.name, sm.invited_by, sm.created_at,
+                       coalesce(array_agg(r.code order by r.code) filter (where r.code is not null),
+                                array[]::varchar[]) roles
                 from shop_members sm join shops s on s.id = sm.shop_id
+                left join shop_member_roles smr on smr.member_id=sm.id
+                left join roles r on r.id=smr.role_id and r.scope='SHOP'
                 where sm.user_id = ? and sm.status = 'INVITED' and s.status = 'ACTIVE'
+                group by sm.id,sm.shop_id,s.name,sm.invited_by,sm.created_at
                 order by sm.created_at desc
                 """, (rs, row) -> {
             UUID memberId = rs.getObject("id", UUID.class);
             return new InvitationResponse(memberId, rs.getObject("shop_id", UUID.class), rs.getString("name"),
-                    rs.getObject("invited_by", UUID.class), instant(rs, "created_at"), roles(memberId));
+                    rs.getObject("invited_by", UUID.class), instant(rs, "created_at"), stringArray(rs, "roles"));
         }, userId);
     }
 
@@ -215,12 +233,10 @@ public class ShopRepository {
 
     public void replaceRoles(UUID memberId, Collection<UUID> roleIds, UUID grantedBy) {
         jdbc.update("delete from shop_member_roles where member_id = ?", memberId);
-        for (UUID roleId : roleIds) {
-            jdbc.update("""
-                    insert into shop_member_roles (member_id, role_id, scope, granted_by)
-                    values (?, ?, 'SHOP', ?)
-                    """, memberId, roleId, grantedBy);
-        }
+        jdbc.batchUpdate("""
+                insert into shop_member_roles (member_id, role_id, scope, granted_by)
+                values (?, ?, 'SHOP', ?)
+                """, roleIds.stream().map(roleId -> new Object[]{memberId, roleId, grantedBy}).toList());
     }
 
     public void addRole(UUID memberId, UUID roleId, UUID grantedBy) {
@@ -322,32 +338,37 @@ public class ShopRepository {
         };
     }
 
-    private MemberResponse mapMemberResponse(ResultSet rs, UUID shopId) throws SQLException {
+    private MemberResponse mapMemberResponse(ResultSet rs, int row) throws SQLException {
         UUID memberId = rs.getObject("id", UUID.class);
         return new MemberResponse(memberId, rs.getObject("user_id", UUID.class), rs.getString("email"),
                 rs.getString("display_name"), rs.getString("status"), rs.getObject("invited_by", UUID.class),
-                instant(rs, "joined_at"), instant(rs, "created_at"), roles(memberId));
+                instant(rs, "joined_at"), instant(rs, "created_at"), stringArray(rs, "roles"));
     }
 
-    private List<String> roles(UUID memberId) {
-        return jdbc.queryForList("""
-                select r.code from shop_member_roles smr join roles r on r.id = smr.role_id
-                where smr.member_id = ? and r.scope = 'SHOP' order by r.code
-                """, String.class, memberId);
+    private List<String> stringArray(ResultSet rs, String column) throws SQLException {
+        Object raw = rs.getArray(column).getArray();
+        if (raw instanceof String[] values) return List.of(values);
+        Object[] values = (Object[]) raw;
+        return Arrays.stream(values).map(Object::toString).toList();
     }
 
     private ShopResponse mapShop(ResultSet rs, int row) throws SQLException {
+        String logoKey = rs.getString("logo_key");
+        String bannerKey = rs.getString("banner_key");
         return new ShopResponse(rs.getObject("id", UUID.class), rs.getObject("owner_user_id", UUID.class),
                 rs.getObject("application_id", UUID.class), rs.getString("name"), rs.getString("slug"),
-                rs.getString("description"), rs.getString("logo_key"), rs.getString("banner_key"),
+                rs.getString("description"), logoKey, assetUrls.publicUrl(logoKey),
+                bannerKey, assetUrls.publicUrl(bannerKey),
                 rs.getString("contact_email"), rs.getString("contact_phone"), parseJson(rs.getString("pickup_address")),
                 rs.getString("status"), instant(rs, "activated_at"), instant(rs, "suspended_at"),
                 instant(rs, "created_at"), instant(rs, "updated_at"));
     }
 
     private ShopSummaryResponse mapShopSummary(ResultSet rs, int row) throws SQLException {
+        String logoKey = rs.getString("logo_key");
         return new ShopSummaryResponse(rs.getObject("id", UUID.class), rs.getObject("owner_user_id", UUID.class),
-                rs.getString("name"), rs.getString("slug"), rs.getString("logo_key"), rs.getString("status"),
+                rs.getString("name"), rs.getString("slug"), logoKey, assetUrls.publicUrl(logoKey),
+                rs.getString("status"),
                 instant(rs, "activated_at"), instant(rs, "suspended_at"),
                 instant(rs, "created_at"), instant(rs, "updated_at"));
     }
