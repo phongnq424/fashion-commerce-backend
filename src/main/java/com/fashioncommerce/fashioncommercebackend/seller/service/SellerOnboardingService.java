@@ -198,11 +198,10 @@ public class SellerOnboardingService {
 
     @Transactional(readOnly = true)
     @PreAuthorize("@platformAuthorization.hasPermission(authentication, 'seller.review')")
-    public SliceResponse<OnboardingResponse> reviewQueue(String status, int limit, int offset) {
+    public SliceResponse<OnboardingSummaryResponse> reviewQueue(String status, int limit, int offset) {
         validatePage(limit, offset);
         String normalized = reviewStatus(status);
-        List<UUID> ids = onboardings.idsByReviewStatus(normalized, limit + 1, offset);
-        return slice(ids, limit, offset);
+        return slice(onboardings.summariesByReviewStatus(normalized, limit + 1, offset), limit, offset);
     }
 
     @Transactional
@@ -286,10 +285,9 @@ public class SellerOnboardingService {
         return note;
     }
 
-    private SliceResponse<OnboardingResponse> slice(List<UUID> ids, int limit, int offset) {
-        boolean hasMore = ids.size() > limit;
-        List<UUID> page = hasMore ? ids.subList(0, limit) : ids;
-        return new SliceResponse<>(page.stream().map(this::response).toList(), limit, offset, hasMore);
+    private static <T> SliceResponse<T> slice(List<T> rows, int limit, int offset) {
+        boolean hasMore = rows.size() > limit;
+        return new SliceResponse<>(hasMore ? rows.subList(0, limit) : rows, limit, offset, hasMore);
     }
 
     private static void validatePage(int limit, int offset) {

@@ -78,12 +78,18 @@ public class ApiExceptionHandler {
             return error(HttpStatus.CONFLICT, "SELLER_ONBOARDING_ACTIVE_EXISTS", "An active seller onboarding already exists", request);
         if ("uq_product_variants_shop_id_seller_sku".equals(constraint))
             return error(HttpStatus.CONFLICT, "PRODUCT_SKU_EXISTS", "SKU already exists in this shop", request);
+        if ("uq_product_variants_product_id_option_signature".equals(constraint))
+            return error(HttpStatus.CONFLICT, "PRODUCT_VARIANT_COMBINATION_EXISTS", "Variant option combination already exists", request);
         if ("uq_products_shop_id_slug".equals(constraint))
             return error(HttpStatus.CONFLICT, "PRODUCT_SLUG_EXISTS", "Product slug already exists in this shop", request);
         if ("ix_products_5".equals(constraint))
             return error(HttpStatus.CONFLICT, "PRODUCT_CODE_EXISTS", "Product code already exists in this shop", request);
         if ("ix_product_moderation_cases_open_reporter".equals(constraint))
             return error(HttpStatus.CONFLICT, "PRODUCT_REPORT_ACTIVE_EXISTS", "You already have an active report for this product", request);
+        if ("ix_user_addresses_2".equals(constraint))
+            return error(HttpStatus.CONFLICT, "ADDRESS_DEFAULT_CONFLICT", "Default address changed; reload and retry", request);
+        if ("ix_checkout_snapshots_ready_buyer".equals(constraint))
+            return error(HttpStatus.CONFLICT, "CHECKOUT_SNAPSHOT_CONFLICT", "Checkout changed; retry preview", request);
         return internal(ex, request);
     }
 
@@ -108,7 +114,9 @@ public class ApiExceptionHandler {
                     "ix_seller_applications_4", "uq_shops_owner_user_id", "uq_shops_application_id",
                     "uq_shops_slug", "uq_shop_members_shop_id_user_id", "ix_shop_ownership_transfers_pending_shop",
                     "ix_seller_onboardings_active_user", "uq_product_variants_shop_id_seller_sku",
-                    "uq_products_shop_id_slug", "ix_products_5", "ix_product_moderation_cases_open_reporter"}) {
+                    "uq_product_variants_product_id_option_signature", "uq_products_shop_id_slug", "ix_products_5",
+                    "ix_product_moderation_cases_open_reporter", "ix_user_addresses_2",
+                    "ix_checkout_snapshots_ready_buyer"}) {
                 if (message.contains(known)) return known;
             }
         }

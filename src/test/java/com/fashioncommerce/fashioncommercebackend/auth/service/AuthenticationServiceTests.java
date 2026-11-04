@@ -4,6 +4,7 @@ import com.fashioncommerce.fashioncommercebackend.auth.dto.*;
 import com.fashioncommerce.fashioncommercebackend.authorization.repository.AuthorizationRepository;
 import com.fashioncommerce.fashioncommercebackend.common.exception.ApiException;
 import com.fashioncommerce.fashioncommercebackend.security.config.SecurityProperties;
+import com.fashioncommerce.fashioncommercebackend.security.jwt.RevokedAccessTokenRepository;
 import com.fashioncommerce.fashioncommercebackend.user.entity.*;
 import com.fashioncommerce.fashioncommercebackend.user.repository.*;
 import org.junit.jupiter.api.*;
@@ -18,6 +19,7 @@ class AuthenticationServiceTests {
     private final UserRepository users = mock(UserRepository.class);
     private final UserCredentialRepository credentials = mock(UserCredentialRepository.class);
     private final UserSessionRepository sessions = mock(UserSessionRepository.class);
+    private final RevokedAccessTokenRepository revokedAccessTokens = mock(RevokedAccessTokenRepository.class);
     private final AuthorizationRepository authorization = mock(AuthorizationRepository.class);
     private final TokenService tokens = mock(TokenService.class);
     private final BCryptPasswordEncoder passwords = new BCryptPasswordEncoder(4);
@@ -30,7 +32,8 @@ class AuthenticationServiceTests {
 
     @BeforeEach void setup() {
         var properties = new SecurityProperties(new SecurityProperties.Jwt("test", "unused", Duration.ofMinutes(15)), Duration.ofDays(14), List.of());
-        service = new AuthenticationService(users, credentials, sessions, authorization, passwords, tokens, properties, Clock.fixed(now, ZoneOffset.UTC));
+        service = new AuthenticationService(users, credentials, sessions, revokedAccessTokens, authorization,
+                passwords, tokens, properties, Clock.fixed(now, ZoneOffset.UTC));
         session = new UserSession(UUID.randomUUID(), id, "old-hash", now.minusSeconds(20), now.plusSeconds(500));
         lenient().when(tokens.hash("old-token")).thenReturn("old-hash");
         lenient().when(tokens.newRefreshToken()).thenReturn("new-token");
@@ -130,11 +133,16 @@ class AuthenticationServiceTests {
         assertThat(session.getRefreshTokenHash()).isEqualTo("old-hash");
     }
     @Test void logoutRevokesOnlyOwnedSession() {
+        UUID tokenId = UUID.randomUUID();
+        Instant accessExpiresAt = now.plusSeconds(300);
         when(sessions.lockByHash("old-hash")).thenReturn(Optional.of(session));
-        assertThatThrownBy(() -> service.logout(UUID.randomUUID(), new RefreshRequest("old-token"))).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> service.logout(UUID.randomUUID(), tokenId, accessExpiresAt,
+                new RefreshRequest("old-token"))).isInstanceOf(ApiException.class);
         assertThat(session.getRevokedAt()).isNull();
-        service.logout(id, new RefreshRequest("old-token"));
+        verifyNoInteractions(revokedAccessTokens);
+        service.logout(id, tokenId, accessExpiresAt, new RefreshRequest("old-token"));
         assertThat(session.getRevokedAt()).isEqualTo(now);
+        verify(revokedAccessTokens).revoke(tokenId, id, accessExpiresAt, now);
         assertThatThrownBy(() -> service.refresh(new RefreshRequest("old-token"))).isInstanceOf(ApiException.class);
     }
 }

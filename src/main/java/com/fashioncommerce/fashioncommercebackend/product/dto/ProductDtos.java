@@ -62,6 +62,7 @@ public final class ProductDtos {
             @NotEmpty @Size(max = 30) List<@Valid ImageRequest> images) { }
 
     public record UpdateProductRequest(
+            @NotNull @PositiveOrZero Long expectedVersion,
             UUID categoryId,
             UUID brandId,
             @Size(max = 80) String sellerProductCode,
@@ -78,6 +79,58 @@ public final class ProductDtos {
                     && careInstructions == null && sizeChart == null;
         }
     }
+
+    public record CreateVariantRequest(
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotBlank @Size(max = 100) String sellerSku,
+            @Size(max = 100) String barcode,
+            @NotNull Map<@NotBlank String, @NotBlank String> selections,
+            @PositiveOrZero @Max(1_000_000_000_000L) long priceMinor,
+            @PositiveOrZero Long compareAtPriceMinor,
+            @Min(1) @Max(1_000_000) int weightGrams,
+            @Positive Integer lengthMm,
+            @Positive Integer widthMm,
+            @Positive Integer heightMm,
+            @Min(0) int initialStock,
+            @Min(0) int reorderPoint) { }
+
+    public record UpdateVariantRequest(
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @Pattern(regexp = ".*\\S.*") @Size(max = 100) String sellerSku,
+            @Size(max = 100) String barcode,
+            @Min(1) @Max(1_000_000) Integer weightGrams,
+            @Positive Integer lengthMm,
+            @Positive Integer widthMm,
+            @Positive Integer heightMm) {
+        public boolean empty() {
+            return sellerSku == null && barcode == null && weightGrams == null
+                    && lengthMm == null && widthMm == null && heightMm == null;
+        }
+    }
+
+    public record UpdateVariantPriceRequest(
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @PositiveOrZero @Max(1_000_000_000_000L) long priceMinor,
+            @PositiveOrZero Long compareAtPriceMinor) { }
+
+    public enum VariantStatus { ACTIVE, INACTIVE }
+    public record UpdateVariantStatusRequest(
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotNull VariantStatus status) { }
+
+    public record AddImageRequest(
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotBlank @Size(max = 500) String storageKey,
+            @Size(max = 250) String altText,
+            @Min(0) int sortOrder,
+            boolean primary,
+            UUID variantId) { }
+
+    public record ImageOrderItem(@NotNull UUID imageId, @Min(0) int sortOrder) { }
+    public record ReorderImagesRequest(
+            @NotNull @PositiveOrZero Long expectedVersion,
+            @NotEmpty @Size(max = 30) List<@Valid ImageOrderItem> items) { }
+    public record SetPrimaryImageRequest(@NotNull @PositiveOrZero Long expectedVersion) { }
 
     public record InventoryRequest(
             @Min(0) int quantityOnHand,
@@ -98,9 +151,15 @@ public final class ProductDtos {
             UUID id, UUID shopId, UUID categoryId, UUID brandId, String sellerProductCode,
             String name, String slug, String description, String material, String fitType,
             String targetGender, String careInstructions, Map<String, Object> sizeChart,
-            String status, Instant publishedAt, List<OptionResponse> options,
+            long version, String status, Instant publishedAt, List<OptionResponse> options,
             List<VariantResponse> variants, List<ImageResponse> images,
             Instant createdAt, Instant updatedAt) { }
+
+    public record ShopProductSummaryResponse(
+            UUID id, UUID shopId, String sellerProductCode, String name, String slug,
+            String status, long version, String primaryImageKey,
+            Long minPriceMinor, Long maxPriceMinor, int variantCount, int activeVariantCount,
+            long quantityOnHand, long quantityReserved, Instant publishedAt, Instant updatedAt) { }
 
     public record PublicVariantResponse(
             UUID id, String sellerSku, Map<String, String> selections,
@@ -112,6 +171,19 @@ public final class ProductDtos {
             String careInstructions, Map<String, Object> sizeChart, Instant publishedAt,
             List<OptionResponse> options, List<PublicVariantResponse> variants,
             List<ImageResponse> images) { }
+
+    public record PublicProductSummaryResponse(
+            UUID id, UUID shopId, String shopName, String shopSlug,
+            UUID categoryId, UUID brandId, String name, String slug, String targetGender,
+            String primaryImageKey, long minPriceMinor, long maxPriceMinor,
+            Long compareAtPriceMinor, int variantCount, long availableQuantity,
+            Instant publishedAt) { }
+
+    public enum ProductSort { NEWEST, PRICE_ASC, PRICE_DESC, NAME_ASC }
+    public record PublicProductQuery(
+            String query, UUID categoryId, UUID brandId, Gender gender,
+            Long minPriceMinor, Long maxPriceMinor, boolean inStock,
+            ProductSort sort, String cursor, int limit) { }
 
     public record CategoryResponse(UUID id, UUID parentId, String name, String slug, String description) { }
     public record BrandResponse(UUID id, String name, String slug, String logoKey) { }
@@ -127,6 +199,10 @@ public final class ProductDtos {
             String reasonCode, String description, List<String> evidenceKeys, String status,
             UUID assignedTo, String resolutionAction, String resolutionNote,
             Instant resolvedAt, Instant createdAt, Instant updatedAt) { }
+
+    public record ModerationCaseSummaryResponse(
+            UUID id, UUID productId, String productName, UUID shopId, UUID reporterUserId,
+            String reasonCode, String status, UUID assignedTo, Instant createdAt, Instant updatedAt) { }
 
     public enum ModerationAction { WARN, HIDE, REMOVE, RESTORE, DISMISS }
     public record ModerateProductRequest(

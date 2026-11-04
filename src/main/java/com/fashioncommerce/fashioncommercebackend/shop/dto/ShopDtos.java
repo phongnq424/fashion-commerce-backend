@@ -40,17 +40,6 @@ public final class ShopDtos {
         }
     }
 
-    public record CreateRequest(
-            @NotNull UUID applicationId,
-            @NotBlank @Size(max = 160) String name,
-            @NotBlank @Pattern(regexp = "[a-z0-9]+(?:-[a-z0-9]+)*") @Size(max = 180) String slug,
-            @Size(max = 5000) String description,
-            @Size(max = 500) String logoKey,
-            @Size(max = 500) String bannerKey,
-            @NotBlank @Email @Size(max = 320) String contactEmail,
-            @NotBlank @Pattern(regexp = "\\+?[0-9]{8,15}") String contactPhone,
-            @NotNull @Valid PickupAddress pickupAddress) { }
-
     public record UpdateRequest(
             @Size(min = 1, max = 160) String name,
             @Pattern(regexp = "[a-z0-9]+(?:-[a-z0-9]+)*") @Size(max = 180) String slug,
@@ -83,6 +72,11 @@ public final class ShopDtos {
             Instant suspendedAt,
             Instant createdAt,
             Instant updatedAt) { }
+
+    public record ShopSummaryResponse(
+            UUID id, UUID ownerUserId, String name, String slug, String logoKey,
+            String status, Instant activatedAt, Instant suspendedAt,
+            Instant createdAt, Instant updatedAt) { }
 
     public record SettingsResponse(
             UUID shopId,

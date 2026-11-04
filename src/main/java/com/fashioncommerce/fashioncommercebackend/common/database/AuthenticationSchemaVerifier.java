@@ -18,6 +18,7 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
                 Map.entry("users", List.of("id", "email", "phone", "status", "email_verified_at")),
                 Map.entry("user_credentials", List.of("user_id", "password_hash", "failed_attempts", "locked_until")),
                 Map.entry("user_sessions", List.of("id", "user_id", "refresh_token_hash", "expires_at", "revoked_at", "last_used_at")),
+                Map.entry("revoked_access_tokens", List.of("token_id", "user_id", "expires_at", "revoked_at")),
                 Map.entry("user_verification_tokens", List.of("id", "token_hash", "purpose", "expires_at")),
                 Map.entry("features", List.of("id", "scope", "is_active")),
                 Map.entry("permissions", List.of("id", "feature_id", "scope", "code")),
@@ -39,11 +40,14 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
                 Map.entry("seller_policy_versions", List.of("version", "title", "is_required", "is_active", "effective_at")),
                 Map.entry("seller_policy_acceptances", List.of("id", "onboarding_id", "policy_version", "accepted_at")),
                 Map.entry("audit_logs", List.of("id", "actor_user_id", "action", "changes")),
-                Map.entry("products", List.of("id", "shop_id")),
+                Map.entry("products", List.of("id", "shop_id", "version")),
                 Map.entry("product_variants", List.of("id", "product_id", "shop_id", "seller_sku", "price_minor")),
                 Map.entry("product_images", List.of("id", "product_id", "storage_key", "is_primary")),
                 Map.entry("inventory_balances", List.of("variant_id", "shop_id", "quantity_on_hand", "quantity_reserved")),
                 Map.entry("product_moderation_cases", List.of("id", "product_id", "reporter_user_id", "reason_code", "status")),
+                Map.entry("carts", List.of("id", "user_id", "version")),
+                Map.entry("cart_items", List.of("id", "cart_id", "variant_id", "quantity", "selected")),
+                Map.entry("checkout_snapshots", List.of("id", "buyer_id", "cart_id", "cart_version", "items_snapshot", "status", "expires_at")),
                 Map.entry("shop_orders", List.of("id", "shop_id")),
                 Map.entry("orders", List.of("id", "buyer_id")));
         List<String> issues = new ArrayList<>();
@@ -56,7 +60,7 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
             throw new IllegalStateException("Missing flyway_schema_history; use a reviewed test migration environment");
         }
         List<String> applied = jdbc.queryForList("select version from flyway_schema_history where success", String.class);
-        List<String> missing = new ArrayList<>(List.of("1", "1.1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12")); missing.removeAll(applied);
+        List<String> missing = new ArrayList<>(List.of("1", "1.1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15")); missing.removeAll(applied);
         if (!missing.isEmpty()) throw new IllegalStateException("Missing successful Flyway migrations: " + missing);
         if (jdbc.queryForObject("select count(*) from flyway_schema_history where not success", Integer.class) != 0) {
             throw new IllegalStateException("Failed entries in flyway_schema_history require review");
@@ -72,7 +76,8 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
                 "fk_permissions_feature_id_scope", "fk_role_permissions_role_id_scope", "fk_role_permissions_permission_id_scope",
                 "fk_user_platform_roles_role_id_scope", "fk_shop_member_roles_role_id_scope", "fk_shop_member_roles_member_id",
                 "fk_shop_members_shop_id", "fk_shop_members_user_id", "fk_user_credentials_user_id", "fk_user_sessions_user_id",
-                "fk_shops_application_id", "ck_user_platform_roles_rule_1", "ck_shop_member_roles_rule_1"));
+                "fk_revoked_access_tokens_user", "fk_shops_application_id", "ck_user_platform_roles_rule_1",
+                "ck_shop_member_roles_rule_1", "ck_products_version", "ck_checkout_snapshots_totals"));
         requiredConstraints.removeAll(constraints);
         if (!requiredConstraints.isEmpty()) throw new IllegalStateException("Missing validated authentication constraints: " + requiredConstraints);
         if (!Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from roles where code='CUSTOMER' and scope='PLATFORM')", Boolean.class))) {

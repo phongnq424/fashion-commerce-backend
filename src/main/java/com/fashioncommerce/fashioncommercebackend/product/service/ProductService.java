@@ -4,16 +4,25 @@ import com.fashioncommerce.fashioncommercebackend.common.audit.AuditLogRepositor
 import com.fashioncommerce.fashioncommercebackend.common.audit.ModerationActionRepository;
 import com.fashioncommerce.fashioncommercebackend.common.exception.ApiException;
 import com.fashioncommerce.fashioncommercebackend.common.notification.NotificationRepository;
+import com.fashioncommerce.fashioncommercebackend.common.response.CursorPageResponse;
 import com.fashioncommerce.fashioncommercebackend.common.response.SliceResponse;
 import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.*;
 import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository;
+import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository.CatalogCursor;
+import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository.CatalogEntry;
+import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository.CatalogFilter;
+import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository.ImageRow;
+import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository.OptionSelection;
 import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository.ProductRow;
+import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository.VariantRow;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.Normalizer;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -52,7 +61,7 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.read')")
-    public SliceResponse<ProductResponse> shopProducts(UUID shopId, int limit, int offset) {
+    public SliceResponse<ShopProductSummaryResponse> shopProducts(UUID shopId, int limit, int offset) {
         validatePage(limit, offset);
         return slice(products.shopProducts(shopId, limit + 1, offset), limit, offset);
     }
@@ -66,9 +75,17 @@ public class ProductService {
     }
 
     @Transactional(readOnly = true)
-    public SliceResponse<PublicProductResponse> publicProducts(UUID categoryId, int limit, int offset) {
-        validatePage(limit, offset);
-        return slice(products.activeProducts(categoryId, limit + 1, offset), limit, offset);
+    public CursorPageResponse<PublicProductSummaryResponse> publicProducts(PublicProductQuery query) {
+        validateCatalogQuery(query);
+        ProductSort sort = query.sort() == null ? ProductSort.NEWEST : query.sort();
+        CatalogCursor cursor = decodeCursor(query.cursor(), sort);
+        CatalogFilter filter = new CatalogFilter(trimToNull(query.query()), query.categoryId(), query.brandId(),
+                query.gender(), query.minPriceMinor(), query.maxPriceMinor(), query.inStock(), sort);
+        List<CatalogEntry> rows = products.activeProducts(filter, cursor, query.limit() + 1);
+        boolean more = rows.size() > query.limit();
+        List<CatalogEntry> page = more ? rows.subList(0, query.limit()) : rows;
+        String next = more && !page.isEmpty() ? encodeCursor(sort, page.get(page.size() - 1)) : null;
+        return new CursorPageResponse<>(page.stream().map(CatalogEntry::product).toList(), query.limit(), next, more);
     }
 
     @Transactional(readOnly = true)
@@ -80,25 +97,22 @@ public class ProductService {
     @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
     public ProductResponse update(UUID actorId, UUID shopId, UUID productId, UpdateProductRequest request) {
         if (request.empty()) throw bad("PRODUCT_UPDATE_EMPTY", "At least one field must be supplied");
-        ProductRow row = products.rowForUpdate(productId).orElseThrow(ProductService::notFound);
-        requireShop(row, shopId);
-        if (Set.of("HIDDEN", "REMOVED").contains(row.status())) {
-            throw conflict("PRODUCT_MODERATION_LOCKED", "A moderated product cannot be edited");
-        }
+        ProductRow row = editable(shopId, productId, request.expectedVersion());
         if (request.categoryId() != null || request.brandId() != null) {
             validateCatalog(request.categoryId() == null ? row.categoryId() : request.categoryId(), request.brandId());
         }
-        products.update(productId, request);
+        if (!products.update(productId, request)) throw versionConflict();
         audit.record(actorId, row.shopId(), "PRODUCT_UPDATED", "PRODUCT", productId, Map.of());
         return products.response(productId);
     }
 
     @Transactional
     @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.publish')")
-    public ProductResponse publish(UUID actorId, UUID shopId, UUID productId) {
+    public ProductResponse publish(UUID actorId, UUID shopId, UUID productId, long expectedVersion) {
         ProductRow row = products.rowForUpdate(productId).orElseThrow(ProductService::notFound);
         requireShop(row, shopId);
-        if (!products.readyToPublish(productId) || !products.publish(productId)) {
+        requireVersion(row, expectedVersion);
+        if (!products.readyToPublish(productId) || !products.publish(productId, expectedVersion)) {
             throw conflict("PRODUCT_NOT_PUBLISHABLE",
                     "A draft product needs an active SKU, inventory record and primary image");
         }
@@ -109,14 +123,135 @@ public class ProductService {
 
     @Transactional
     @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.publish')")
-    public ProductResponse unpublish(UUID actorId, UUID shopId, UUID productId) {
+    public ProductResponse unpublish(UUID actorId, UUID shopId, UUID productId, long expectedVersion) {
         ProductRow row = products.rowForUpdate(productId).orElseThrow(ProductService::notFound);
         requireShop(row, shopId);
-        if (!products.unpublish(productId)) {
+        requireVersion(row, expectedVersion);
+        if (!products.unpublish(productId, expectedVersion)) {
             throw conflict("PRODUCT_STATE_CONFLICT", "Only an active product can be unpublished");
         }
         audit.record(actorId, shopId, "PRODUCT_UNPUBLISHED", "PRODUCT", productId,
                 Map.of("from", row.status(), "to", "ARCHIVED"));
+        return products.response(productId);
+    }
+
+    @Transactional
+    @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
+    public ProductResponse createVariant(UUID actorId, UUID shopId, UUID productId, CreateVariantRequest request) {
+        ProductRow product = editable(shopId, productId, request.expectedVersion());
+        if (request.compareAtPriceMinor() != null && request.compareAtPriceMinor() < request.priceMinor()) {
+            throw bad("PRODUCT_COMPARE_PRICE_INVALID", "Compare-at price must not be lower than price");
+        }
+        Map<String, OptionSelection> selections = selectedOptions(productId, request.selections());
+        UUID variantId = products.createVariant(actorId, shopId, productId, request, selections);
+        advanceVersion(productId, request.expectedVersion());
+        audit.record(actorId, shopId, "PRODUCT_VARIANT_CREATED", "PRODUCT_VARIANT", variantId,
+                Map.of("productId", productId, "sku", normalize(request.sellerSku())));
+        return products.response(product.id());
+    }
+
+    @Transactional
+    @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
+    public ProductResponse updateVariant(UUID actorId, UUID shopId, UUID productId, UUID variantId,
+                                         UpdateVariantRequest request) {
+        if (request.empty()) throw bad("PRODUCT_VARIANT_UPDATE_EMPTY", "At least one field must be supplied");
+        editable(shopId, productId, request.expectedVersion());
+        requiredVariant(productId, variantId);
+        products.updateVariant(variantId, request);
+        advanceVersion(productId, request.expectedVersion());
+        audit.record(actorId, shopId, "PRODUCT_VARIANT_UPDATED", "PRODUCT_VARIANT", variantId, Map.of());
+        return products.response(productId);
+    }
+
+    @Transactional
+    @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
+    public ProductResponse updateVariantPrice(UUID actorId, UUID shopId, UUID productId, UUID variantId,
+                                              UpdateVariantPriceRequest request) {
+        editable(shopId, productId, request.expectedVersion());
+        VariantRow variant = requiredVariant(productId, variantId);
+        if (request.compareAtPriceMinor() != null && request.compareAtPriceMinor() < request.priceMinor()) {
+            throw bad("PRODUCT_COMPARE_PRICE_INVALID", "Compare-at price must not be lower than price");
+        }
+        products.updateVariantPrice(variantId, request);
+        advanceVersion(productId, request.expectedVersion());
+        audit.record(actorId, shopId, "PRODUCT_VARIANT_PRICE_UPDATED", "PRODUCT_VARIANT", variantId,
+                Map.of("from", variant.priceMinor(), "to", request.priceMinor()));
+        return products.response(productId);
+    }
+
+    @Transactional
+    @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
+    public ProductResponse updateVariantStatus(UUID actorId, UUID shopId, UUID productId, UUID variantId,
+                                               UpdateVariantStatusRequest request) {
+        ProductRow product = editable(shopId, productId, request.expectedVersion());
+        VariantRow variant = requiredVariant(productId, variantId);
+        if (request.status() == VariantStatus.INACTIVE && "ACTIVE".equals(product.status())
+                && "ACTIVE".equals(variant.status()) && products.activeVariantCount(productId) <= 1) {
+            throw conflict("PRODUCT_LAST_ACTIVE_VARIANT", "An active product needs at least one active SKU");
+        }
+        products.updateVariantStatus(variantId, request.status());
+        advanceVersion(productId, request.expectedVersion());
+        audit.record(actorId, shopId, "PRODUCT_VARIANT_STATUS_UPDATED", "PRODUCT_VARIANT", variantId,
+                Map.of("from", variant.status(), "to", request.status().name()));
+        return products.response(productId);
+    }
+
+    @Transactional
+    @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
+    public ProductResponse addImage(UUID actorId, UUID shopId, UUID productId, AddImageRequest request) {
+        editable(shopId, productId, request.expectedVersion());
+        if (products.imageCount(productId) >= 30) throw conflict("PRODUCT_IMAGE_LIMIT", "A product may have at most 30 images");
+        if (request.variantId() != null && !products.variantBelongsToProduct(request.variantId(), productId)) {
+            throw imageNotFound();
+        }
+        UUID imageId = products.addImage(productId, request);
+        advanceVersion(productId, request.expectedVersion());
+        audit.record(actorId, shopId, "PRODUCT_IMAGE_ADDED", "PRODUCT_IMAGE", imageId,
+                Map.of("productId", productId));
+        return products.response(productId);
+    }
+
+    @Transactional
+    @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
+    public ProductResponse deleteImage(UUID actorId, UUID shopId, UUID productId, UUID imageId,
+                                       long expectedVersion) {
+        ProductRow product = editable(shopId, productId, expectedVersion);
+        ImageRow image = requiredImage(productId, imageId);
+        if ("ACTIVE".equals(product.status()) && image.primary() && image.variantId() == null) {
+            throw conflict("PRODUCT_PRIMARY_IMAGE_REQUIRED", "Set another primary product image before deleting this one");
+        }
+        products.deleteImage(imageId);
+        advanceVersion(productId, expectedVersion);
+        audit.record(actorId, shopId, "PRODUCT_IMAGE_DELETED", "PRODUCT_IMAGE", imageId,
+                Map.of("productId", productId));
+        return products.response(productId);
+    }
+
+    @Transactional
+    @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
+    public ProductResponse reorderImages(UUID actorId, UUID shopId, UUID productId, ReorderImagesRequest request) {
+        editable(shopId, productId, request.expectedVersion());
+        Set<UUID> ids = new HashSet<>();
+        for (ImageOrderItem item : request.items()) {
+            if (!ids.add(item.imageId())) throw bad("PRODUCT_IMAGE_DUPLICATED", "An image may appear only once");
+            requiredImage(productId, item.imageId());
+        }
+        products.reorderImages(request.items());
+        advanceVersion(productId, request.expectedVersion());
+        audit.record(actorId, shopId, "PRODUCT_IMAGES_REORDERED", "PRODUCT", productId, Map.of());
+        return products.response(productId);
+    }
+
+    @Transactional
+    @PreAuthorize("@shopAuthorization.hasPermission(authentication, #shopId, 'shop.product.update')")
+    public ProductResponse setPrimaryImage(UUID actorId, UUID shopId, UUID productId, UUID imageId,
+                                           SetPrimaryImageRequest request) {
+        editable(shopId, productId, request.expectedVersion());
+        ImageRow image = requiredImage(productId, imageId);
+        products.setPrimaryImage(productId, image);
+        advanceVersion(productId, request.expectedVersion());
+        audit.record(actorId, shopId, "PRODUCT_PRIMARY_IMAGE_UPDATED", "PRODUCT_IMAGE", imageId,
+                Map.of("productId", productId));
         return products.response(productId);
     }
 
@@ -152,7 +287,7 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     @PreAuthorize("@platformAuthorization.hasPermission(authentication, 'product.moderate')")
-    public SliceResponse<ModerationCaseResponse> cases(String status, int limit, int offset) {
+    public SliceResponse<ModerationCaseSummaryResponse> cases(String status, int limit, int offset) {
         validatePage(limit, offset);
         String normalized = status == null || status.isBlank() ? "OPEN" : status.strip().toUpperCase(Locale.ROOT);
         if (!CASE_STATUSES.contains(normalized)) throw bad("MODERATION_STATUS_INVALID", "Invalid moderation case status");
@@ -220,7 +355,7 @@ public class ProductService {
             if (!skus.add(normalize(variant.sellerSku()))) throw bad("PRODUCT_SKU_DUPLICATED", "SKU values must be unique");
             Map<String, String> selections = variant.selections().entrySet().stream().collect(Collectors.toMap(
                     entry -> normalize(entry.getKey()), entry -> normalize(entry.getValue()), (a, b) -> a));
-            if (!selections.keySet().equals(optionTypes)) {
+            if (selections.size() != variant.selections().size() || !selections.keySet().equals(optionTypes)) {
                 throw bad("PRODUCT_VARIANT_OPTIONS_INVALID", "Every SKU must select one value for every product option");
             }
             for (Map.Entry<String, String> selection : selections.entrySet()) {
@@ -249,6 +384,100 @@ public class ProductService {
         }
     }
 
+    private Map<String, OptionSelection> selectedOptions(UUID productId, Map<String, String> requested) {
+        Map<String, OptionSelection> available = products.optionSelections(productId);
+        Set<String> optionTypes = available.keySet().stream()
+                .map(key -> key.substring(0, key.indexOf('='))).collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, String> normalized = new LinkedHashMap<>();
+        requested.forEach((type, code) -> {
+            if (normalized.putIfAbsent(normalize(type), normalize(code)) != null) {
+                throw bad("PRODUCT_VARIANT_OPTIONS_INVALID", "An option type may be selected only once");
+            }
+        });
+        if (!normalized.keySet().equals(optionTypes)) {
+            throw bad("PRODUCT_VARIANT_OPTIONS_INVALID", "Every SKU must select one value for every product option");
+        }
+        Map<String, OptionSelection> selected = new LinkedHashMap<>();
+        normalized.forEach((type, code) -> {
+            OptionSelection value = available.get(type + "=" + code);
+            if (value == null) throw bad("PRODUCT_VARIANT_OPTIONS_INVALID", "SKU references an unknown option value");
+            selected.put(type, value);
+        });
+        return selected;
+    }
+
+    private ProductRow editable(UUID shopId, UUID productId, long expectedVersion) {
+        ProductRow row = products.rowForUpdate(productId).orElseThrow(ProductService::notFound);
+        requireShop(row, shopId);
+        requireVersion(row, expectedVersion);
+        if (Set.of("HIDDEN", "REMOVED").contains(row.status())) {
+            throw conflict("PRODUCT_MODERATION_LOCKED", "A moderated product cannot be edited");
+        }
+        return row;
+    }
+
+    private VariantRow requiredVariant(UUID productId, UUID variantId) {
+        return products.variantForUpdate(productId, variantId).orElseThrow(ProductService::variantNotFound);
+    }
+
+    private ImageRow requiredImage(UUID productId, UUID imageId) {
+        return products.imageForUpdate(productId, imageId).orElseThrow(ProductService::imageNotFound);
+    }
+
+    private void advanceVersion(UUID productId, long expectedVersion) {
+        if (!products.bumpVersion(productId, expectedVersion)) throw versionConflict();
+    }
+
+    private static void requireVersion(ProductRow row, long expectedVersion) {
+        if (row.version() != expectedVersion) throw versionConflict();
+    }
+
+    private static void validateCatalogQuery(PublicProductQuery query) {
+        if (query.limit() < 1 || query.limit() > 100) {
+            throw bad("PAGINATION_INVALID", "Limit must be 1-100");
+        }
+        if (query.query() != null && query.query().strip().length() > 200) {
+            throw bad("PRODUCT_SEARCH_INVALID", "Search query may contain at most 200 characters");
+        }
+        if ((query.minPriceMinor() != null && query.minPriceMinor() < 0)
+                || (query.maxPriceMinor() != null && query.maxPriceMinor() < 0)
+                || (query.minPriceMinor() != null && query.maxPriceMinor() != null
+                && query.minPriceMinor() > query.maxPriceMinor())) {
+            throw bad("PRODUCT_PRICE_FILTER_INVALID", "Price range is invalid");
+        }
+    }
+
+    private static String encodeCursor(ProductSort sort, CatalogEntry entry) {
+        String value = switch (sort) {
+            case NEWEST -> entry.publishedAt().toString();
+            case PRICE_ASC, PRICE_DESC -> Long.toString(entry.price());
+            case NAME_ASC -> entry.name();
+        };
+        String raw = sort.name() + "\0" + value + "\0" + entry.id();
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static CatalogCursor decodeCursor(String cursor, ProductSort expectedSort) {
+        if (cursor == null || cursor.isBlank()) return null;
+        try {
+            String raw = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+            String[] parts = raw.split("\0", -1);
+            if (parts.length != 3 || !expectedSort.name().equals(parts[0])) throw new IllegalArgumentException();
+            UUID id = UUID.fromString(parts[2]);
+            return switch (expectedSort) {
+                case NEWEST -> new CatalogCursor(Instant.parse(parts[1]), null, null, id);
+                case PRICE_ASC, PRICE_DESC -> new CatalogCursor(null, Long.parseLong(parts[1]), null, id);
+                case NAME_ASC -> new CatalogCursor(null, null, parts[1], id);
+            };
+        } catch (IllegalArgumentException ex) {
+            throw bad("PAGINATION_CURSOR_INVALID", "Cursor is invalid for the selected sort");
+        }
+    }
+
+    private static String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
+    }
+
     private ProductRow required(UUID id) { return products.row(id).orElseThrow(ProductService::notFound); }
     private static void requireShop(ProductRow row, UUID shopId) { if (!row.shopId().equals(shopId)) throw notFound(); }
     private static String normalize(String value) { return value.strip().toUpperCase(Locale.ROOT); }
@@ -269,6 +498,9 @@ public class ProductService {
     }
     private static ApiException bad(String code, String message) { return new ApiException(HttpStatus.BAD_REQUEST, code, message); }
     private static ApiException conflict(String code, String message) { return new ApiException(HttpStatus.CONFLICT, code, message); }
+    private static ApiException versionConflict() { return conflict("PRODUCT_VERSION_CONFLICT", "Product was changed by another request"); }
     private static ApiException notFound() { return new ApiException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND", "Product not found"); }
+    private static ApiException variantNotFound() { return new ApiException(HttpStatus.NOT_FOUND, "PRODUCT_VARIANT_NOT_FOUND", "Product variant not found"); }
+    private static ApiException imageNotFound() { return new ApiException(HttpStatus.NOT_FOUND, "PRODUCT_IMAGE_NOT_FOUND", "Product image not found"); }
     private static ApiException caseNotFound() { return new ApiException(HttpStatus.NOT_FOUND, "MODERATION_CASE_NOT_FOUND", "Moderation case not found"); }
 }

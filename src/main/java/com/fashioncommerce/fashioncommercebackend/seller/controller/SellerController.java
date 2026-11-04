@@ -19,7 +19,7 @@ public class SellerController {
     }
 
     @GetMapping
-    public SliceResponse<ApplicationResponse> mine(Authentication identity,
+    public SliceResponse<ApplicationSummaryResponse> mine(Authentication identity,
                                                    @RequestParam(defaultValue = "20") int limit,
                                                    @RequestParam(defaultValue = "0") int offset) {
         return service.ownApplications(CurrentIdentity.userId(identity).orElseThrow(), limit, offset);

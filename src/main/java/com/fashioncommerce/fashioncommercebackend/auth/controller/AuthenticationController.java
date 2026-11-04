@@ -31,7 +31,8 @@ public class AuthenticationController {
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(Authentication identity, @Valid @RequestBody RefreshRequest request) {
-        service.logout(CurrentIdentity.userId(identity).orElseThrow(), request);
+        var accessToken = CurrentIdentity.accessToken(identity).orElseThrow();
+        service.logout(accessToken.userId(), accessToken.tokenId(), accessToken.expiresAt(), request);
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 }

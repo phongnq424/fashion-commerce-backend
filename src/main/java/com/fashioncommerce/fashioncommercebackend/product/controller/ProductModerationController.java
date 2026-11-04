@@ -3,6 +3,7 @@ package com.fashioncommerce.fashioncommercebackend.product.controller;
 import com.fashioncommerce.fashioncommercebackend.common.response.SliceResponse;
 import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.ModerateProductRequest;
 import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.ModerationCaseResponse;
+import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.ModerationCaseSummaryResponse;
 import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.ProductResponse;
 import com.fashioncommerce.fashioncommercebackend.product.service.ProductService;
 import com.fashioncommerce.fashioncommercebackend.security.principal.CurrentIdentity;
@@ -22,7 +23,7 @@ public class ProductModerationController {
     }
 
     @GetMapping("/cases")
-    public SliceResponse<ModerationCaseResponse> cases(
+    public SliceResponse<ModerationCaseSummaryResponse> cases(
             @RequestParam(defaultValue = "OPEN") String status,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {

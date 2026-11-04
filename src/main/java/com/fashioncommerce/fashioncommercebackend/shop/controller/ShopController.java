@@ -21,7 +21,7 @@ public class ShopController {
     }
 
     @GetMapping("/mine")
-    public SliceResponse<ShopResponse> mine(Authentication identity,
+    public SliceResponse<ShopSummaryResponse> mine(Authentication identity,
                                             @RequestParam(defaultValue = "20") int limit,
                                             @RequestParam(defaultValue = "0") int offset) {
         return service.mine(CurrentIdentity.userId(identity).orElseThrow(), limit, offset);

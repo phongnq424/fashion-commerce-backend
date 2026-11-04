@@ -4,6 +4,7 @@ import com.fashioncommerce.fashioncommercebackend.auth.dto.*;
 import com.fashioncommerce.fashioncommercebackend.authorization.repository.AuthorizationRepository;
 import com.fashioncommerce.fashioncommercebackend.common.exception.ApiException;
 import com.fashioncommerce.fashioncommercebackend.security.config.SecurityProperties;
+import com.fashioncommerce.fashioncommercebackend.security.jwt.RevokedAccessTokenRepository;
 import com.fashioncommerce.fashioncommercebackend.user.entity.*;
 import com.fashioncommerce.fashioncommercebackend.user.repository.*;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,7 @@ public class AuthenticationService {
     private final UserRepository users;
     private final UserCredentialRepository credentials;
     private final UserSessionRepository sessions;
+    private final RevokedAccessTokenRepository revokedAccessTokens;
     private final AuthorizationRepository authorization;
     private final PasswordEncoder passwords;
     private final TokenService tokens;
@@ -28,9 +30,11 @@ public class AuthenticationService {
     private final String dummyHash;
 
     public AuthenticationService(UserRepository users, UserCredentialRepository credentials, UserSessionRepository sessions,
+                                 RevokedAccessTokenRepository revokedAccessTokens,
                                  AuthorizationRepository authorization, PasswordEncoder passwords, TokenService tokens,
                                  SecurityProperties properties, Clock clock) {
-        this.users = users; this.credentials = credentials; this.sessions = sessions; this.authorization = authorization;
+        this.users = users; this.credentials = credentials; this.sessions = sessions;
+        this.revokedAccessTokens = revokedAccessTokens; this.authorization = authorization;
         this.passwords = passwords; this.tokens = tokens; this.properties = properties; this.clock = clock;
         dummyHash = passwords.encode(UUID.randomUUID().toString());
     }
@@ -85,10 +89,15 @@ public class AuthenticationService {
     }
 
     @Transactional
-    public void logout(UUID authenticatedUserId, RefreshRequest request) {
+    public void logout(UUID authenticatedUserId, UUID accessTokenId, Instant accessTokenExpiresAt,
+                       RefreshRequest request) {
         UserSession session = validSession(request.refreshToken());
         if (!session.getUserId().equals(authenticatedUserId)) throw invalidRefresh();
-        session.revoke(clock.instant());
+        Instant now = clock.instant();
+        if (!accessTokenExpiresAt.isAfter(now)) throw new ApiException(HttpStatus.UNAUTHORIZED,
+                "AUTH_INVALID_ACCESS_TOKEN", "Invalid access token");
+        session.revoke(now);
+        revokedAccessTokens.revoke(accessTokenId, authenticatedUserId, accessTokenExpiresAt, now);
     }
 
     private UserSession validSession(String refreshToken) {

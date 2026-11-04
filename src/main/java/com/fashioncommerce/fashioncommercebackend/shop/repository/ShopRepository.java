@@ -19,6 +19,10 @@ public class ShopRepository {
             s.logo_key, s.banner_key, s.contact_email, s.contact_phone, s.pickup_address,
             s.status, s.activated_at, s.suspended_at, s.created_at, s.updated_at
             """;
+    private static final String SHOP_SUMMARY_COLUMNS = """
+            s.id, s.owner_user_id, s.name, s.slug, s.logo_key, s.status,
+            s.activated_at, s.suspended_at, s.created_at, s.updated_at
+            """;
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -26,20 +30,6 @@ public class ShopRepository {
     public ShopRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
-    }
-
-    public ShopResponse create(UUID shopId, UUID ownerId, UUID applicationId, CreateRequest request) {
-        jdbc.update("""
-                insert into shops
-                    (id, owner_user_id, application_id, name, slug, description, logo_key, banner_key,
-                     contact_email, contact_phone, pickup_address)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
-                """, shopId, ownerId, applicationId, request.name().strip(), request.slug().strip().toLowerCase(Locale.ROOT),
-                trimToNull(request.description()), trimToNull(request.logoKey()), trimToNull(request.bannerKey()),
-                request.contactEmail().strip().toLowerCase(Locale.ROOT), request.contactPhone().strip(),
-                json(request.pickupAddress().asMap()));
-        jdbc.update("insert into shop_settings (shop_id) values (?)", shopId);
-        return find(shopId).orElseThrow();
     }
 
     public Optional<ShopResponse> find(UUID shopId) {
@@ -52,19 +42,19 @@ public class ShopRepository {
                 .stream().findFirst();
     }
 
-    public List<ShopResponse> findForUser(UUID userId, int limitPlusOne, int offset) {
-        return jdbc.query("select " + SHOP_COLUMNS + " from shops s join shop_members sm on sm.shop_id = s.id " +
+    public List<ShopSummaryResponse> findForUser(UUID userId, int limitPlusOne, int offset) {
+        return jdbc.query("select " + SHOP_SUMMARY_COLUMNS + " from shops s join shop_members sm on sm.shop_id = s.id " +
                         "where sm.user_id = ? and sm.status = 'ACTIVE' order by s.created_at desc limit ? offset ?",
-                this::mapShop, userId, limitPlusOne, offset);
+                this::mapShopSummary, userId, limitPlusOne, offset);
     }
 
-    public List<ShopResponse> findAll(String status, int limitPlusOne, int offset) {
+    public List<ShopSummaryResponse> findAll(String status, int limitPlusOne, int offset) {
         if (status == null) {
-            return jdbc.query("select " + SHOP_COLUMNS + " from shops s order by s.created_at desc limit ? offset ?",
-                    this::mapShop, limitPlusOne, offset);
+            return jdbc.query("select " + SHOP_SUMMARY_COLUMNS + " from shops s order by s.created_at desc limit ? offset ?",
+                    this::mapShopSummary, limitPlusOne, offset);
         }
-        return jdbc.query("select " + SHOP_COLUMNS + " from shops s where s.status = ? " +
-                        "order by s.created_at desc limit ? offset ?", this::mapShop, status, limitPlusOne, offset);
+        return jdbc.query("select " + SHOP_SUMMARY_COLUMNS + " from shops s where s.status = ? " +
+                        "order by s.created_at desc limit ? offset ?", this::mapShopSummary, status, limitPlusOne, offset);
     }
 
     public void update(UUID shopId, UpdateRequest request) {
@@ -352,6 +342,13 @@ public class ShopRepository {
                 rs.getString("description"), rs.getString("logo_key"), rs.getString("banner_key"),
                 rs.getString("contact_email"), rs.getString("contact_phone"), parseJson(rs.getString("pickup_address")),
                 rs.getString("status"), instant(rs, "activated_at"), instant(rs, "suspended_at"),
+                instant(rs, "created_at"), instant(rs, "updated_at"));
+    }
+
+    private ShopSummaryResponse mapShopSummary(ResultSet rs, int row) throws SQLException {
+        return new ShopSummaryResponse(rs.getObject("id", UUID.class), rs.getObject("owner_user_id", UUID.class),
+                rs.getString("name"), rs.getString("slug"), rs.getString("logo_key"), rs.getString("status"),
+                instant(rs, "activated_at"), instant(rs, "suspended_at"),
                 instant(rs, "created_at"), instant(rs, "updated_at"));
     }
 

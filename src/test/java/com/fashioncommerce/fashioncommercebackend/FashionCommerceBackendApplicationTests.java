@@ -4,7 +4,12 @@ import com.fashioncommerce.fashioncommercebackend.auth.dto.*;
 import com.fashioncommerce.fashioncommercebackend.auth.service.*;
 import com.fashioncommerce.fashioncommercebackend.authorization.repository.AuthorizationRepository;
 import com.fashioncommerce.fashioncommercebackend.authorization.service.*;
+import com.fashioncommerce.fashioncommercebackend.commerce.dto.CommerceDtos.*;
+import com.fashioncommerce.fashioncommercebackend.commerce.repository.CommerceRepository;
 import com.fashioncommerce.fashioncommercebackend.integration.IsolatedDatabaseInitializer;
+import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.*;
+import com.fashioncommerce.fashioncommercebackend.product.repository.ProductRepository;
+import com.fashioncommerce.fashioncommercebackend.security.jwt.RevokedAccessTokenRepository;
 import com.fashioncommerce.fashioncommercebackend.user.repository.*;
 import com.fashioncommerce.fashioncommercebackend.user.service.CurrentUserService;
 import org.junit.jupiter.api.*;
@@ -47,7 +52,10 @@ class FashionCommerceBackendApplicationTests {
     @Autowired PasswordEncoder passwords;
     @Autowired JdbcTemplate jdbc;
     @Autowired JwtDecoder decoder;
+    @Autowired RevokedAccessTokenRepository revokedAccessTokens;
     @Autowired PlatformTransactionManager transactions;
+    @Autowired ProductRepository products;
+    @Autowired CommerceRepository commerce;
 
     @DynamicPropertySource static void key(DynamicPropertyRegistry properties) {
         byte[] bytes = new byte[32]; new SecureRandom().nextBytes(bytes);
@@ -63,7 +71,7 @@ class FashionCommerceBackendApplicationTests {
     }
 
     @Test void contextLoadsWithAllMigrationsAndValidatedEntityMappings() {
-        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success and version in ('1','1.1','2','3','4','5','6','7','8','9','10','11','12')", Integer.class)).isEqualTo(13);
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success and version in ('1','1.1','2','3','4','5','6','7','8','9','10','11','12','13','14','15')", Integer.class)).isEqualTo(16);
     }
     @Test void registrationPersistsCredentialAndCustomerButNoVerifiedEmail() {
         UserResponse user = newUser();
@@ -91,10 +99,11 @@ class FashionCommerceBackendApplicationTests {
         assertThat(rotated.refreshToken()).isNotEqualTo(first.refreshToken());
         assertThat(rotated.refreshExpiresAt()).isEqualTo(first.refreshExpiresAt());
         assertThatThrownBy(() -> auth.refresh(new RefreshRequest(first.refreshToken()))).isInstanceOf(com.fashioncommerce.fashioncommercebackend.common.exception.ApiException.class);
-        auth.logout(user.id(), new RefreshRequest(rotated.refreshToken()));
+        Jwt access = decoder.decode(first.accessToken());
+        UUID accessTokenId = UUID.fromString(access.getId());
+        auth.logout(user.id(), accessTokenId, access.getExpiresAt(), new RefreshRequest(rotated.refreshToken()));
         assertThatThrownBy(() -> auth.refresh(new RefreshRequest(rotated.refreshToken()))).isInstanceOf(com.fashioncommerce.fashioncommercebackend.common.exception.ApiException.class);
-        // Logout does not claim to revoke the independently signed access token.
-        assertThat(decoder.decode(first.accessToken()).getSubject()).isEqualTo(user.id().toString());
+        assertThat(revokedAccessTokens.isRevoked(accessTokenId, user.id())).isTrue();
     }
     @Test void inactiveUserCannotRefreshOrLogin() {
         UserResponse user = newUser(); TokenResponse token = login(user);
@@ -180,6 +189,57 @@ class FashionCommerceBackendApplicationTests {
         assertThat(shops.canProcessOrder(identity, orderA)).isTrue();
         assertThat(shops.canProcessOrder(identity, orderB)).isFalse();
         assertThat(platform.canReadOrder(identity, order)).isFalse();
+    }
+
+    @Test void productVersionAndPublicCursorQueryUsePostgresSchema() {
+        UUID shopId = newShop();
+        UUID categoryId = UUID.fromString("10000000-0000-0000-0000-000000000001");
+        String sku = "IT-" + UUID.randomUUID().toString().substring(0, 8);
+        CreateProductRequest create = new CreateProductRequest(categoryId, null, sku, "Integration Shirt",
+                "Integration catalog product", "Cotton", "Regular", Gender.UNISEX, null, null, List.of(),
+                List.of(new VariantRequest(sku, null, Map.of(), 199_000, 249_000L,
+                        250, null, null, null, 0, 2)),
+                List.of(new ImageRequest("integration/products/main.jpg", "Main", 0, true, null)));
+        UUID productId = products.create(UUID.randomUUID(), shopId, create, "integration-" + productIdSuffix());
+        assertThat(products.response(productId).version()).isZero();
+
+        UpdateProductRequest update = new UpdateProductRequest(0L, null, null, null, "Updated Shirt",
+                null, null, null, null, null, null);
+        assertThat(products.update(productId, update)).isTrue();
+        assertThat(products.update(productId, update)).isFalse();
+        assertThat(products.publish(productId, 1L)).isTrue();
+
+        var filter = new ProductRepository.CatalogFilter("Updated Shirt", categoryId, null, null,
+                null, null, false, ProductSort.NEWEST);
+        assertThat(products.activeProducts(filter, null, 2)).extracting(entry -> entry.product().id())
+                .contains(productId);
+    }
+
+    @Test void cartAddressAndCheckoutSnapshotUsePostgresSchema() {
+        UserResponse buyer = newUser();
+        var cart = commerce.ensureCart(buyer.id());
+        CreateAddressRequest addressRequest = new CreateAddressRequest("Integration Buyer", "0901234567",
+                "1 Test Street", null, "Test Ward", "Test District", "Test Province", "01", null, "VN", true);
+        UUID addressId = commerce.createAddress(buyer.id(), addressRequest, true);
+        var address = commerce.address(buyer.id(), addressId).orElseThrow();
+        RecipientSnapshot recipient = new RecipientSnapshot(address.recipientName(), address.recipientPhone(),
+                address.addressLine1(), address.addressLine2(), address.ward(), address.district(),
+                address.province(), address.provinceCode(), address.postalCode(), address.countryCode());
+        CheckoutItemSnapshot item = new CheckoutItemSnapshot(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "Integration Product", "IT-SKU", Map.of("SIZE", "M"), "integration/main.jpg", 100_000, 2, 200_000);
+        CheckoutShopSnapshot shop = new CheckoutShopSnapshot(UUID.randomUUID(), "Integration Shop", "integration-shop",
+                200_000, 30_000, 230_000, List.of(item));
+        UUID snapshotId = commerce.createCheckoutSnapshot(buyer.id(), cart.id(), cart.version(), recipient,
+                List.of(shop), 200_000, 30_000, 230_000, Instant.now().plusSeconds(900));
+
+        assertThat(jdbc.queryForObject("select status from checkout_snapshots where id=?", String.class, snapshotId))
+                .isEqualTo("READY");
+        assertThat(jdbc.queryForObject("select jsonb_array_length(items_snapshot) from checkout_snapshots where id=?",
+                Integer.class, snapshotId)).isEqualTo(1);
+    }
+
+    private String productIdSuffix() {
+        return UUID.randomUUID().toString().substring(0, 8);
     }
 
     @Test

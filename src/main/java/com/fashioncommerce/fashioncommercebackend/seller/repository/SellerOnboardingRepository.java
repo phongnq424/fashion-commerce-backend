@@ -83,11 +83,23 @@ public class SellerOnboardingRepository {
                 """, UUID.class, status, limitPlusOne, offset);
     }
 
-    public List<UUID> idsByReviewStatus(String status, int limitPlusOne, int offset) {
-        return jdbc.queryForList("""
-                select id from seller_onboardings where status=?
-                order by coalesce(submitted_at, created_at) limit ? offset ?
-                """, UUID.class, status, limitPlusOne, offset);
+    public List<OnboardingSummaryResponse> summariesByReviewStatus(String status, int limitPlusOne, int offset) {
+        return jdbc.query("""
+                select o.id,o.applicant_user_id,u.email applicant_email,u.display_name applicant_display_name,
+                       o.shop_id,s.name shop_name,s.slug shop_slug,o.status,t.status tax_status,
+                       i.status identity_status,o.submitted_at,o.updated_at
+                from seller_onboardings o
+                join users u on u.id=o.applicant_user_id
+                join shops s on s.id=o.shop_id
+                left join seller_tax_profiles t on t.onboarding_id=o.id
+                left join seller_identity_verifications i on i.onboarding_id=o.id
+                where o.status=? order by coalesce(o.submitted_at,o.created_at) limit ? offset ?
+                """, (rs, row) -> new OnboardingSummaryResponse(
+                rs.getObject("id", UUID.class), rs.getObject("applicant_user_id", UUID.class),
+                rs.getString("applicant_email"), rs.getString("applicant_display_name"),
+                rs.getObject("shop_id", UUID.class), rs.getString("shop_name"), rs.getString("shop_slug"),
+                rs.getString("status"), rs.getString("tax_status"), rs.getString("identity_status"),
+                instant(rs, "submitted_at"), instant(rs, "updated_at")), status, limitPlusOne, offset);
     }
 
     public void updateShop(UUID shopId, ShopProfileRequest request) {

@@ -20,7 +20,7 @@ public class ShopModerationController {
     }
 
     @GetMapping
-    public SliceResponse<ShopResponse> shops(@RequestParam(required = false) String status,
+    public SliceResponse<ShopSummaryResponse> shops(@RequestParam(required = false) String status,
                                             @RequestParam(defaultValue = "20") int limit,
                                             @RequestParam(defaultValue = "0") int offset) {
         return service.moderationQueue(status, limit, offset);

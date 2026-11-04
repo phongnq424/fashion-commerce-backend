@@ -22,8 +22,9 @@ Repo hiện đã hoàn thành nền tảng cơ sở dữ liệu, xác thực/ph�
 - Báo cáo sản phẩm và hậu kiểm bằng các action cảnh cáo, ẩn, gỡ, khôi phục hoặc bác báo cáo.
 - Ghi audit log cho các thao tác seller/shop nhạy cảm.
 - Unit test, security test và bộ integration test PostgreSQL tùy chọn.
+- Sổ địa chỉ buyer, giỏ hàng có optimistic locking và checkout preview/snapshot theo từng shop.
 
-Các module cart, order, payment và shipping hiện mới có schema cơ sở dữ liệu, chưa có API nghiệp vụ.
+Order, payment và shipping hiện mới có schema cơ sở dữ liệu, chưa có API nghiệp vụ.
 
 ## Công nghệ
 
@@ -41,6 +42,7 @@ Các module cart, order, payment và shipping hiện mới có schema cơ sở d
 src/main/java/com/fashioncommerce/fashioncommercebackend
 ├── auth             # Đăng ký, đăng nhập, refresh token và đăng xuất
 ├── authorization    # Phân quyền platform và shop
+├── commerce         # Địa chỉ buyer, cart và checkout snapshot
 ├── common           # Xử lý lỗi và kiểm tra schema
 ├── product          # Catalog, SKU, tồn kho và hậu kiểm sản phẩm
 ├── security         # JWT, Spring Security và CORS
@@ -53,7 +55,7 @@ src/main/resources
 
 ## Cơ sở dữ liệu
 
-Repo có 13 migration, tạo tổng cộng 58 bảng:
+Repo có 16 migration, tạo tổng cộng 60 bảng:
 
 | Migration | Phạm vi |
 |---|---|
@@ -70,6 +72,9 @@ Repo có 13 migration, tạo tổng cộng 58 bảng:
 | `V10` | Đăng bán sản phẩm ngay, moderation case và hậu kiểm sản phẩm |
 | `V11` | Bổ sung action bác báo cáo sản phẩm theo migration tiến tới |
 | `V12` | Thu gọn catalog đang hoạt động còn Áo, Quần và Váy & Đầm |
+| `V13` | Denylist JWT để logout thu hồi access token hiện tại |
+| `V14` | Optimistic version cho product và index tìm kiếm/cursor catalog công khai |
+| `V15` | Checkout snapshot bất biến, có thời hạn để chuẩn bị tạo order |
 
 Flyway bị tắt mặc định để tránh vô tình thay đổi sai database. Chỉ bật migration trên database development hoặc test đã được xác nhận.
 
@@ -127,8 +132,27 @@ Không bật migration trên database production nếu chưa kiểm tra kỹ c�
 | `POST` | `/api/v1/auth/register` | Public | Tạo tài khoản |
 | `POST` | `/api/v1/auth/login` | Public | Trả về access token và refresh token |
 | `POST` | `/api/v1/auth/refresh` | Refresh token hợp lệ | Xoay vòng token |
-| `POST` | `/api/v1/auth/logout` | Bearer token | Thu hồi refresh session |
+| `POST` | `/api/v1/auth/logout` | Bearer token | Thu hồi refresh session và access token hiện tại |
 | `GET` | `/api/v1/users/me` | Bearer token và quyền `account.read_own` | Thông tin người dùng hiện tại |
+
+### Buyer commerce
+
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| `GET` | `/api/v1/users/me/addresses` | Danh sách địa chỉ giao hàng của buyer |
+| `POST` | `/api/v1/users/me/addresses` | Thêm địa chỉ; địa chỉ đầu tiên tự động là mặc định |
+| `PUT` | `/api/v1/users/me/addresses/{addressId}` | Cập nhật hoặc đặt địa chỉ mặc định |
+| `DELETE` | `/api/v1/users/me/addresses/{addressId}` | Xóa địa chỉ và tự chọn địa chỉ mặc định còn lại |
+| `GET` | `/api/v1/cart` | Lấy hoặc khởi tạo giỏ hàng của buyer |
+| `POST` | `/api/v1/cart/items` | Thêm SKU vào giỏ; SKU đã tồn tại sẽ tăng số lượng |
+| `PUT` | `/api/v1/cart/items/{itemId}` | Đổi số lượng và trạng thái chọn của một dòng |
+| `DELETE` | `/api/v1/cart/items/{itemId}` | Xóa dòng khỏi giỏ |
+| `PUT` | `/api/v1/cart/selection` | Chọn hoặc bỏ chọn nhiều dòng |
+| `POST` | `/api/v1/checkout/preview` | Xác thực giá/tồn kho, nhóm theo shop và tạo snapshot 15 phút |
+
+Mọi mutation của cart phải gửi `expectedVersion`. Nếu có request khác đã thay đổi giỏ, API trả
+`409 CART_VERSION_CONFLICT`. Cart không giữ hàng. Checkout kiểm tra lại trạng thái product/SKU/shop,
+giá hiện tại và `quantity_on_hand - quantity_reserved`; snapshot chỉ được tạo khi không có issue.
 
 ### Seller
 
@@ -165,6 +189,14 @@ seller application thành `APPROVED` và shop chuyển sang `ACTIVE` trong cùng
 | `GET` | `/api/v1/shops/{shopId}/products` | Danh sách sản phẩm của shop, gồm cả sản phẩm chưa công khai |
 | `GET` | `/api/v1/shops/{shopId}/products/{productId}` | Chi tiết sản phẩm dành cho shop |
 | `PATCH` | `/api/v1/shops/{shopId}/products/{productId}` | Cập nhật thông tin mô tả sản phẩm |
+| `POST` | `/api/v1/shops/{shopId}/products/{productId}/variants` | Thêm SKU sau khi tạo sản phẩm |
+| `PATCH` | `/api/v1/shops/{shopId}/products/{productId}/variants/{variantId}` | Cập nhật mã SKU, barcode, cân nặng và kích thước |
+| `PUT` | `/api/v1/shops/{shopId}/products/{productId}/variants/{variantId}/price` | Cập nhật giá và giá so sánh của SKU |
+| `PUT` | `/api/v1/shops/{shopId}/products/{productId}/variants/{variantId}/status` | Bật hoặc tắt SKU, không xóa cứng |
+| `POST` | `/api/v1/shops/{shopId}/products/{productId}/images` | Thêm storage key ảnh sản phẩm hoặc SKU |
+| `DELETE` | `/api/v1/shops/{shopId}/products/{productId}/images/{imageId}` | Xóa metadata ảnh |
+| `PUT` | `/api/v1/shops/{shopId}/products/{productId}/images/order` | Sắp xếp lại ảnh |
+| `PUT` | `/api/v1/shops/{shopId}/products/{productId}/images/{imageId}/primary` | Đặt ảnh chính theo product hoặc SKU |
 | `PUT` | `/api/v1/shops/{shopId}/products/variants/{variantId}/inventory` | Điều chỉnh tồn kho SKU và ghi inventory movement |
 | `POST` | `/api/v1/shops/{shopId}/products/{productId}/publish` | Đăng bán ngay, không qua bước duyệt |
 | `POST` | `/api/v1/shops/{shopId}/products/{productId}/unpublish` | Seller chủ động ngừng bán |
@@ -178,6 +210,13 @@ seller application thành `APPROVED` và shop chuyển sang `ACTIVE` trong cùng
 Sản phẩm mới ở trạng thái `DRAFT`. Khi có ít nhất một SKU active, bản ghi tồn kho và một ảnh chính,
 seller có thể publish để chuyển trực tiếp sang `ACTIVE`. `HIDDEN` và `REMOVED` không xuất hiện ở API công khai;
 `RESTORE` đưa sản phẩm trở lại `ACTIVE`. Mọi quyết định hậu kiểm đều được ghi audit, moderation action và gửi thông báo cho owner.
+
+Các request thay đổi metadata product, SKU, ảnh hoặc trạng thái publish phải gửi `expectedVersion`. API trả `409 PRODUCT_VERSION_CONFLICT`
+nếu product đã bị request khác thay đổi. Inventory dùng version và row lock riêng nên không làm tăng product version.
+
+`GET /api/v1/products` dùng cursor opaque thay cho offset. API hỗ trợ `q`, `categoryId`, `brandId`, `gender`,
+`minPriceMinor`, `maxPriceMinor`, `inStock`, `sort`, `cursor` và `limit`. Sort hiện có là `NEWEST`, `PRICE_ASC`,
+`PRICE_DESC` và `NAME_ASC`; response trả `nextCursor` khi còn trang tiếp theo.
 
 ### Shop và nhân viên
 
@@ -241,7 +280,7 @@ Refresh token hiện được gửi trong JSON body. API chưa sử dụng cooki
 - Access token dùng JWT HS256 và mặc định hết hạn sau 15 phút.
 - Refresh token là token ngẫu nhiên, được lưu trong database dưới dạng SHA-256.
 - Refresh token được thay mới sau mỗi lần refresh và không thể tái sử dụng token cũ.
-- Logout thu hồi refresh session; access token đã cấp vẫn hợp lệ đến khi hết hạn.
+- Logout thu hồi refresh session và đưa `jti` của access token hiện tại vào denylist đến khi token hết hạn.
 - Tài khoản phải ở trạng thái `ACTIVE` khi sử dụng access token.
 - Tài khoản chưa xác minh email hiện vẫn có thể đăng nhập.
 - CORS mặc định không cho phép origin nào nếu `CORS_ALLOWED_ORIGINS` để trống.
@@ -273,7 +312,6 @@ Không dùng database production cho integration test. Bộ test có thể áp d
 - Xác minh email và quên mật khẩu.
 - OAuth, đăng nhập mạng xã hội và 2FA.
 - API quản trị role/permission.
-- Cart và checkout.
 - Order, payment và shipping.
 - Return và refund.
 - Voucher và review.

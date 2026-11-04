@@ -17,7 +17,7 @@ public class SellerModerationController {
     }
 
     @GetMapping
-    public SliceResponse<ApplicationResponse> queue(@RequestParam(required = false) String status,
+    public SliceResponse<ApplicationSummaryResponse> queue(@RequestParam(required = false) String status,
                                                     @RequestParam(defaultValue = "20") int limit,
                                                     @RequestParam(defaultValue = "0") int offset) {
         return service.reviewQueue(status, limit, offset);

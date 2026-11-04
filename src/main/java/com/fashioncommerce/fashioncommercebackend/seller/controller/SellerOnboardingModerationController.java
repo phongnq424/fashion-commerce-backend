@@ -23,7 +23,7 @@ public class SellerOnboardingModerationController {
     }
 
     @GetMapping("/reviews")
-    public SliceResponse<OnboardingResponse> queue(
+    public SliceResponse<OnboardingSummaryResponse> queue(
             @RequestParam(defaultValue = "PENDING_REVIEW") String status,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset) {

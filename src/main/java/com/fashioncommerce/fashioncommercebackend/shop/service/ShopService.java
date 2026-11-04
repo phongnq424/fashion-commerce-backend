@@ -38,28 +38,8 @@ public class ShopService {
         this.clock = clock;
     }
 
-    @Transactional
-    @PreAuthorize("@platformAuthorization.hasPermission(authentication, 'seller.apply')")
-    public ShopResponse create(UUID userId, CreateRequest request) {
-        sellers.approvedApplicationForUpdate(request.applicationId(), userId)
-                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "SHOP_APPLICATION_NOT_APPROVED",
-                        "An approved seller application owned by the current user is required"));
-        if (shops.ownsShop(userId)) {
-            throw new ApiException(HttpStatus.CONFLICT, "SHOP_OWNER_LIMIT_REACHED", "A seller can own only one shop");
-        }
-
-        UUID shopId = UUID.randomUUID();
-        ShopResponse created = shops.create(shopId, userId, request.applicationId(), request);
-        UUID memberId = shops.createActiveMember(shopId, userId, userId);
-        UUID ownerRole = requiredRole(shops.shopRoles(), "SHOP_OWNER");
-        shops.addRole(memberId, ownerRole, userId);
-        audit.record(userId, shopId, "SHOP_CREATED", "SHOP", shopId,
-                Map.of("applicationId", request.applicationId(), "status", "ACTIVE"));
-        return created;
-    }
-
     @Transactional(readOnly = true)
-    public SliceResponse<ShopResponse> mine(UUID userId, int limit, int offset) {
+    public SliceResponse<ShopSummaryResponse> mine(UUID userId, int limit, int offset) {
         validatePage(limit, offset);
         return slice(shops.findForUser(userId, limit + 1, offset), limit, offset);
     }
@@ -379,7 +359,7 @@ public class ShopService {
 
     @Transactional(readOnly = true)
     @PreAuthorize("@platformAuthorization.hasPermission(authentication, 'shop.suspend')")
-    public SliceResponse<ShopResponse> moderationQueue(String status, int limit, int offset) {
+    public SliceResponse<ShopSummaryResponse> moderationQueue(String status, int limit, int offset) {
         validatePage(limit, offset);
         String normalized = status == null || status.isBlank() ? null : status.strip().toUpperCase(Locale.ROOT);
         if (normalized != null && !SHOP_STATUSES.contains(normalized)) {

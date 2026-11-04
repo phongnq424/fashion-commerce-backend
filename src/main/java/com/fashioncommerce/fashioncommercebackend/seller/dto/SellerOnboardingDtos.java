@@ -113,4 +113,9 @@ public final class SellerOnboardingDtos {
             List<String> acceptedPolicyVersions, Instant submittedAt,
             UUID reviewedBy, Instant reviewedAt, String reviewNote, Instant completedAt,
             Instant createdAt, Instant updatedAt) { }
+
+    public record OnboardingSummaryResponse(
+            UUID id, UUID applicantUserId, String applicantEmail, String applicantDisplayName,
+            UUID shopId, String shopName, String shopSlug, String status,
+            String taxStatus, String identityStatus, Instant submittedAt, Instant updatedAt) { }
 }

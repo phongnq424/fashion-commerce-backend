@@ -9,6 +9,7 @@ import com.fashioncommerce.fashioncommercebackend.common.exception.ApiExceptionH
 import com.fashioncommerce.fashioncommercebackend.security.config.SecurityConfiguration;
 import com.fashioncommerce.fashioncommercebackend.security.exception.SecurityErrorHandler;
 import com.fashioncommerce.fashioncommercebackend.security.jwt.JwtConfiguration;
+import com.fashioncommerce.fashioncommercebackend.security.jwt.RevokedAccessTokenRepository;
 import com.fashioncommerce.fashioncommercebackend.user.controller.CurrentUserController;
 import com.fashioncommerce.fashioncommercebackend.user.entity.User;
 import com.fashioncommerce.fashioncommercebackend.user.repository.UserRepository;
@@ -42,6 +43,7 @@ class SecurityHttpTests {
     @Autowired JwtEncoder encoder;
     @MockitoBean AuthenticationService authentication;
     @MockitoBean UserRepository users;
+    @MockitoBean RevokedAccessTokenRepository revokedAccessTokens;
     @MockitoBean AuthorizationRepository authorization;
     private static final String KEY;
     static { byte[] bytes = new byte[32]; new SecureRandom().nextBytes(bytes); KEY = Base64.getEncoder().encodeToString(bytes); }
@@ -53,8 +55,11 @@ class SecurityHttpTests {
         registry.add("security.cors-origins", () -> "https://store.example.com");
     }
     String access(Instant expiration) {
+        return access(expiration, UUID.randomUUID());
+    }
+    String access(Instant expiration, UUID tokenId) {
         var claims = JwtClaimsSet.builder().subject(userId.toString()).issuer("test").issuedAt(Instant.now().minusSeconds(120))
-                .expiresAt(expiration).id(UUID.randomUUID().toString()).build();
+                .expiresAt(expiration).id(tokenId.toString()).build();
         return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).type("JWT").build(), claims)).getTokenValue();
     }
 
@@ -80,6 +85,14 @@ class SecurityHttpTests {
     }
     @Test void suspendedAccountIsRejectedEvenWithValidSignature() throws Exception {
         mvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + access(Instant.now().plusSeconds(900)))).andExpect(status().isUnauthorized());
+    }
+    @Test void revokedAccessTokenIsRejectedEvenWithValidSignature() throws Exception {
+        UUID tokenId = UUID.randomUUID();
+        when(users.existsByIdAndStatus(userId, "ACTIVE")).thenReturn(true);
+        when(revokedAccessTokens.isRevoked(tokenId, userId)).thenReturn(true);
+        mvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer "
+                        + access(Instant.now().plusSeconds(900), tokenId)))
+                .andExpect(status().isUnauthorized());
     }
     @Test void authenticatedUserWithoutPermissionGets403() throws Exception {
         when(users.existsByIdAndStatus(userId, "ACTIVE")).thenReturn(true);
@@ -119,11 +132,13 @@ class SecurityHttpTests {
     }
     @Test void refreshIsPublicButLogoutRequiresBearer() throws Exception {
         String body = "{\"refreshToken\":\"" + "a".repeat(43) + "\"}";
+        UUID tokenId = UUID.randomUUID();
+        Instant expiresAt = Instant.now().plusSeconds(900).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         mvc.perform(post("/api/v1/auth/refresh").contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk());
         mvc.perform(post("/api/v1/auth/logout").contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
         when(users.existsByIdAndStatus(userId, "ACTIVE")).thenReturn(true);
-        mvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer " + access(Instant.now().plusSeconds(900))).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isNoContent());
-        verify(authentication).logout(eq(userId), any());
+        mvc.perform(post("/api/v1/auth/logout").header("Authorization", "Bearer " + access(expiresAt, tokenId)).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isNoContent());
+        verify(authentication).logout(eq(userId), eq(tokenId), eq(expiresAt), any());
     }
     @Test void corsAllowsOnlyConfiguredOrigin() throws Exception {
         mvc.perform(options("/api/v1/auth/login").header("Origin", "https://store.example.com").header("Access-Control-Request-Method", "POST").header("Access-Control-Request-Headers", "Content-Type"))

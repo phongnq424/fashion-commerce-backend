@@ -1,6 +1,7 @@
 package com.fashioncommerce.fashioncommercebackend.security.config;
 
 import com.fashioncommerce.fashioncommercebackend.security.exception.SecurityErrorHandler;
+import com.fashioncommerce.fashioncommercebackend.security.jwt.RevokedAccessTokenRepository;
 import com.fashioncommerce.fashioncommercebackend.user.repository.UserRepository;
 import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -36,6 +37,7 @@ public class SecurityConfiguration {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityErrorHandler errors, UserRepository users,
+                                           RevokedAccessTokenRepository revokedAccessTokens,
                                            CorsConfigurationSource corsConfigurationSource) throws Exception {
         CorsFilter corsFilter = new CorsFilter(corsConfigurationSource);
         DefaultCorsProcessor processor = new DefaultCorsProcessor() {
@@ -65,7 +67,10 @@ public class SecurityConfiguration {
                 .oauth2ResourceServer(resource -> resource
                         .authenticationEntryPoint(errors).accessDeniedHandler(errors)
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
-                            if (!users.existsByIdAndStatus(UUID.fromString(token.getSubject()), "ACTIVE")) {
+                            UUID userId = UUID.fromString(token.getSubject());
+                            UUID tokenId = UUID.fromString(token.getId());
+                            if (!users.existsByIdAndStatus(userId, "ACTIVE")
+                                    || revokedAccessTokens.isRevoked(tokenId, userId)) {
                                 throw new OAuth2AuthenticationException("invalid_token");
                             }
                             return new JwtAuthenticationToken(token, List.of(), token.getSubject());

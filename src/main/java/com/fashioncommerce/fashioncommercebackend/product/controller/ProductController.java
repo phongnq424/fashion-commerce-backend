@@ -1,9 +1,7 @@
 package com.fashioncommerce.fashioncommercebackend.product.controller;
 
-import com.fashioncommerce.fashioncommercebackend.common.response.SliceResponse;
-import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.ModerationCaseResponse;
-import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.PublicProductResponse;
-import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.ReportProductRequest;
+import com.fashioncommerce.fashioncommercebackend.common.response.CursorPageResponse;
+import com.fashioncommerce.fashioncommercebackend.product.dto.ProductDtos.*;
 import com.fashioncommerce.fashioncommercebackend.product.service.ProductService;
 import com.fashioncommerce.fashioncommercebackend.security.principal.CurrentIdentity;
 import jakarta.validation.Valid;
@@ -23,11 +21,19 @@ public class ProductController {
     }
 
     @GetMapping
-    public SliceResponse<PublicProductResponse> products(
+    public CursorPageResponse<PublicProductSummaryResponse> products(
+            @RequestParam(name = "q", required = false) String query,
             @RequestParam(required = false) UUID categoryId,
-            @RequestParam(defaultValue = "20") int limit,
-            @RequestParam(defaultValue = "0") int offset) {
-        return service.publicProducts(categoryId, limit, offset);
+            @RequestParam(required = false) UUID brandId,
+            @RequestParam(required = false) Gender gender,
+            @RequestParam(required = false) Long minPriceMinor,
+            @RequestParam(required = false) Long maxPriceMinor,
+            @RequestParam(defaultValue = "false") boolean inStock,
+            @RequestParam(defaultValue = "NEWEST") ProductSort sort,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int limit) {
+        return service.publicProducts(new PublicProductQuery(query, categoryId, brandId, gender,
+                minPriceMinor, maxPriceMinor, inStock, sort, cursor, limit));
     }
 
     @GetMapping("/{productId}")
