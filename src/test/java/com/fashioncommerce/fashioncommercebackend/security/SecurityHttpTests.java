@@ -109,25 +109,45 @@ class SecurityHttpTests {
     }
     @Test void publicRegistrationRejectsInjectedRolesAndInvalidPayloads() throws Exception {
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content("""
-                {"email":"me@example.com","password":"StrongPassword123","displayName":"Me","role":"PLATFORM_ADMIN"}
+                {"email":"me@example.com","phone":"0901234567","password":"StrongPassword123","displayName":"Me","otp":"123456","role":"PLATFORM_ADMIN"}
                 """)).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("REQUEST_INVALID"));
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content("""
-                {"email":"wrong","password":"short","displayName":""}
+                {"email":"wrong","phone":"invalid","password":"short","displayName":"","otp":"1"}
                 """)).andExpect(status().isBadRequest());
         verifyNoInteractions(authentication);
     }
+    @Test void registrationOtpRequestIsPublicAndReturns202() throws Exception {
+        when(authentication.requestRegistrationOtp(any())).thenReturn(new OtpChallengeResponse(300, 60));
+        mvc.perform(post("/api/v1/auth/register/otp").contentType(MediaType.APPLICATION_JSON).content("""
+                {"email":"me@example.com"}
+                """)).andExpect(status().isAccepted()).andExpect(jsonPath("$.expiresIn").value(300));
+    }
+    @Test void passwordResetOtpAndResetArePublic() throws Exception {
+        when(authentication.requestPasswordResetOtp(any())).thenReturn(new OtpChallengeResponse(300, 60));
+        mvc.perform(post("/api/v1/auth/password-reset/otp").contentType(MediaType.APPLICATION_JSON).content("""
+                {"identifier":"0901234567"}
+                """))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.expiresIn").value(300));
+
+        mvc.perform(post("/api/v1/auth/password-reset").contentType(MediaType.APPLICATION_JSON).content("""
+                {"identifier":"me@example.com","otp":"123456","newPassword":"NewStrongPassword456"}
+                """))
+                .andExpect(status().isNoContent());
+        verify(authentication).resetPassword(any());
+    }
     @Test void validRegistrationIsPublicAndReturns201() throws Exception {
-        when(authentication.register(any())).thenReturn(new UserResponse(userId, "me@example.com", "Me", "ACTIVE", null, List.of("CUSTOMER")));
+        when(authentication.register(any())).thenReturn(new UserResponse(userId, "me@example.com", "+84901234567", "Me", "ACTIVE", Instant.now(), List.of("CUSTOMER")));
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content("""
-                {"email":"me@example.com","password":"StrongPassword123","displayName":"Me"}
+                {"email":"me@example.com","phone":"0901234567","password":"StrongPassword123","displayName":"Me","otp":"123456"}
                 """)).andExpect(status().isCreated()).andExpect(jsonPath("$.roles[0]").value("CUSTOMER"));
     }
     @Test void loginErrorsAreGenericAndContainNoSecrets() throws Exception {
         when(authentication.login(any())).thenThrow(new InvalidCredentialsException());
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content("""
-                {"email":"me@example.com","password":"wrong"}
+                {"identifier":"me@example.com","password":"wrong"}
                 """)).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("AUTH_INVALID_CREDENTIALS"))
-                .andExpect(jsonPath("$.message").value("Invalid email or password"));
+                .andExpect(jsonPath("$.message").value("Invalid email, phone or password"));
     }
     @Test void refreshIsPublicButLogoutRequiresBearer() throws Exception {
         String body = "{\"refreshToken\":\"" + "a".repeat(43) + "\"}";
@@ -149,14 +169,14 @@ class SecurityHttpTests {
         var constraint = new org.hibernate.exception.ConstraintViolationException("private SQL details", new java.sql.SQLException(), "ix_users_3");
         when(authentication.register(any())).thenThrow(new org.springframework.dao.DataIntegrityViolationException("private", constraint));
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content("""
-                {"email":"me@example.com","password":"StrongPassword123","displayName":"Me"}
+                {"email":"me@example.com","phone":"0901234567","password":"StrongPassword123","displayName":"Me","otp":"123456"}
                 """)).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("AUTH_EMAIL_EXISTS"))
                 .andExpect(jsonPath("$.message").value("Email already registered"));
     }
     @Test void unexpectedFailureIsSanitizedAndWrongContentTypeUses415() throws Exception {
         when(authentication.login(any())).thenThrow(new IllegalStateException("sensitive-value"));
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content("""
-                {"email":"me@example.com","password":"wrong"}
+                {"identifier":"0901234567","password":"wrong"}
                 """)).andExpect(status().isInternalServerError()).andExpect(jsonPath("$.message").value("An internal error occurred"));
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.TEXT_PLAIN).content("not-json"))
                 .andExpect(status().isUnsupportedMediaType()).andExpect(jsonPath("$.code").value("MEDIA_TYPE_UNSUPPORTED"));

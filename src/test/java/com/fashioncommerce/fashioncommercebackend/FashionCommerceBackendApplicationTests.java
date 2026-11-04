@@ -1,6 +1,7 @@
 package com.fashioncommerce.fashioncommercebackend;
 
 import com.fashioncommerce.fashioncommercebackend.auth.dto.*;
+import com.fashioncommerce.fashioncommercebackend.auth.otp.RegistrationOtpService;
 import com.fashioncommerce.fashioncommercebackend.auth.service.*;
 import com.fashioncommerce.fashioncommercebackend.authorization.repository.AuthorizationRepository;
 import com.fashioncommerce.fashioncommercebackend.authorization.service.*;
@@ -29,6 +30,7 @@ import java.security.SecureRandom;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import static org.assertj.core.api.Assertions.*;
 
@@ -42,7 +44,9 @@ import static org.assertj.core.api.Assertions.*;
 @ContextConfiguration(initializers = IsolatedDatabaseInitializer.class)
 @Transactional
 class FashionCommerceBackendApplicationTests {
+    private static final AtomicInteger PHONE_SEQUENCE = new AtomicInteger(10_000_000);
     @Autowired AuthenticationService auth;
+    @org.springframework.test.context.bean.override.mockito.MockitoBean RegistrationOtpService registrationOtps;
     @Autowired AuthorizationRepository authorization;
     @Autowired PlatformAuthorizationService platform;
     @Autowired ShopAuthorizationService shops;
@@ -62,7 +66,9 @@ class FashionCommerceBackendApplicationTests {
         String secret = Base64.getEncoder().encodeToString(bytes);
         properties.add("security.jwt.secret-base64", () -> secret);
     }
-    private RegisterRequest registration(String email) { return new RegisterRequest(email, "StrongPassword123", "Integration User", null); }
+    private RegisterRequest registration(String email) {
+        return new RegisterRequest(email, "09" + PHONE_SEQUENCE.getAndIncrement(), "StrongPassword123", "Integration User", "123456");
+    }
     private UserResponse newUser() { return auth.register(registration("it-" + UUID.randomUUID() + "@example.com")); }
     private TokenResponse login(UserResponse user) { return auth.login(new LoginRequest(user.email(), "StrongPassword123")); }
     private JwtAuthenticationToken identity(UserResponse user) { return new JwtAuthenticationToken(decoder.decode(login(user).accessToken()), List.of()); }
@@ -73,9 +79,9 @@ class FashionCommerceBackendApplicationTests {
     @Test void contextLoadsWithAllMigrationsAndValidatedEntityMappings() {
         assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success and version in ('1','1.1','2','3','4','5','6','7','8','9','10','11','12','13','14','15')", Integer.class)).isEqualTo(16);
     }
-    @Test void registrationPersistsCredentialAndCustomerButNoVerifiedEmail() {
+    @Test void registrationPersistsCredentialCustomerAndVerifiedEmail() {
         UserResponse user = newUser();
-        assertThat(users.findById(user.id()).orElseThrow().getEmailVerifiedAt()).isNull();
+        assertThat(users.findById(user.id()).orElseThrow().getEmailVerifiedAt()).isNotNull();
         String hash = credentials.findById(user.id()).orElseThrow().getPasswordHash();
         assertThat(passwords.matches("StrongPassword123", hash)).isTrue();
         assertThat(authorization.platformRoles(user.id())).containsExactly("CUSTOMER");

@@ -10,6 +10,23 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
 
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${GMAIL_USERNAME:}
+    password: ${GMAIL_APP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
   jpa:
     hibernate:
       ddl-auto: validate
@@ -32,6 +49,17 @@ security:
 
 assets:
   public-base-url: ${ASSET_PUBLIC_BASE_URL:}
+
+auth:
+  otp:
+    ttl: ${OTP_TTL:5m}
+    resend-cooldown: ${OTP_RESEND_COOLDOWN:60s}
+    max-attempts: ${OTP_MAX_ATTEMPTS:5}
+    daily-send-limit: ${OTP_DAILY_SEND_LIMIT:10}
+    # Use a different secret in production. JWT fallback only keeps local/test setup small.
+    pepper-base64: ${OTP_PEPPER_BASE64:${JWT_SECRET_BASE64}}
+  email:
+    from: ${GMAIL_FROM:${GMAIL_USERNAME:}}
 
 server:
   error:

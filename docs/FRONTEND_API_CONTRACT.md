@@ -56,21 +56,48 @@ Offset pagination mặc định `limit=20&offset=0`. Public product dùng opaque
 
 | Method | Endpoint | Access | Request | Response |
 |---|---|---|---|---|
+| POST | `/auth/register/otp` | Public | `RegistrationOtpRequest` | `202 OtpChallengeResponse` |
 | POST | `/auth/register` | Public | `RegisterRequest` | `201 UserResponse` |
+| POST | `/auth/password-reset/otp` | Public | `PasswordResetOtpRequest` | `202 OtpChallengeResponse` |
+| POST | `/auth/password-reset` | Public | `PasswordResetRequest` | `204` |
 | POST | `/auth/login` | Public | `LoginRequest` | `200 TokenResponse` |
 | POST | `/auth/refresh` | Public | `RefreshRequest` | `200 TokenResponse` |
 | POST | `/auth/logout` | Bearer | `RefreshRequest` | `204` |
 | GET | `/users/me` | Bearer | - | `200 UserResponse` |
 
 ```ts
-interface RegisterRequest {
+interface RegistrationOtpRequest {
   email: string;
-  password: string;
-  displayName: string;
-  phone?: string | null;
 }
 
-interface LoginRequest { email: string; password: string }
+interface OtpChallengeResponse {
+  expiresIn: number;           // seconds
+  resendAfter: number;         // seconds
+}
+
+interface RegisterRequest {
+  email: string;
+  phone: string;               // bắt buộc; 0901234567, 84901234567 hoặc +84901234567
+  password: string;
+  displayName: string;
+  otp: string;                 // đúng 6 chữ số
+}
+
+interface LoginRequest {
+  identifier: string;          // email hoặc số điện thoại Việt Nam
+  password: string;
+}
+
+interface PasswordResetOtpRequest {
+  identifier: string;          // email hoặc số điện thoại Việt Nam
+}
+
+interface PasswordResetRequest {
+  identifier: string;
+  otp: string;                 // đúng 6 chữ số
+  newPassword: string;
+}
+
 interface RefreshRequest { refreshToken: string }
 
 interface TokenResponse {
@@ -84,12 +111,30 @@ interface TokenResponse {
 interface UserResponse {
   id: string;
   email: string;
+  phone: string | null;        // null chỉ có thể gặp ở tài khoản cũ
   displayName: string;
   status: string;
   emailVerifiedAt: string | null;
   roles: string[];
 }
 ```
+
+Luồng đăng ký: gọi `/auth/register/otp` với email, người dùng nhập mã nhận qua Gmail, sau đó gửi toàn bộ
+`RegisterRequest` (bao gồm email và số điện thoại bắt buộc) tới `/auth/register`. Backend chuẩn hóa số Việt Nam
+về E.164 (`0901234567` thành `+84901234567`). OTP mặc định hết hạn sau 5 phút, chỉ dùng một lần, có thời gian
+chờ gửi lại và giới hạn số lần thử. Frontend không lưu OTP lâu dài và không ghi OTP vào log.
+
+Đăng nhập chấp nhận email hoặc số điện thoại trong field `identifier`. Số điện thoại có thể gửi ở dạng
+`0901234567`, `84901234567` hoặc `+84901234567`.
+
+Luồng quên mật khẩu: gọi `/auth/password-reset/otp` với email hoặc số điện thoại. Backend luôn trả cùng một
+response để không làm lộ tài khoản có tồn tại hay không; nếu tài khoản hợp lệ, OTP được gửi tới email đã đăng ký.
+Sau đó gọi `/auth/password-reset` với cùng tài khoản, OTP và mật khẩu mới. OTP chỉ dùng một lần; reset thành công
+thu hồi toàn bộ refresh session cũ và trả `204`.
+
+Lỗi riêng: `400 AUTH_OTP_INVALID_OR_EXPIRED`, `409 AUTH_PHONE_EXISTS`, `409 AUTH_EMAIL_EXISTS`,
+`429 AUTH_OTP_RESEND_TOO_SOON`, `429 AUTH_OTP_DAILY_LIMIT`, `503 AUTH_OTP_DELIVERY_FAILED`,
+`503 AUTH_EMAIL_NOT_CONFIGURED`.
 
 Logout thu hồi cả refresh-token session và access token hiện tại. Sau refresh thành công, frontend phải thay cả
 access token và refresh token cũ bằng cặp token mới.

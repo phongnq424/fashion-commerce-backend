@@ -19,11 +19,16 @@ public class User {
 
     protected User() { }
     public User(UUID id, String email, String phone, String displayName, Instant now) {
+        this(id, email, phone, displayName, null, now);
+    }
+    public User(UUID id, String email, String phone, String displayName, Instant emailVerifiedAt, Instant now) {
         this.id = id; this.email = email; this.phone = phone; this.displayName = displayName;
+        this.emailVerifiedAt = emailVerifiedAt;
         this.status = "ACTIVE"; this.createdAt = now; this.updatedAt = now;
     }
     public UUID getId() { return id; }
     public String getEmail() { return email; }
+    public String getPhone() { return phone; }
     public String getDisplayName() { return displayName; }
     public String getStatus() { return status; }
     public Instant getEmailVerifiedAt() { return emailVerifiedAt; }

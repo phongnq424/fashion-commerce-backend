@@ -21,6 +21,7 @@ public class CurrentUserService {
     public UserResponse currentUser(UUID userId) {
         var user = users.findById(userId).filter(u -> u.isActive())
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_UNAUTHORIZED", "Authentication required"));
-        return new UserResponse(user.getId(), user.getEmail(), user.getDisplayName(), user.getStatus(), user.getEmailVerifiedAt(), authorization.platformRoles(userId));
+        return new UserResponse(user.getId(), user.getEmail(), user.getPhone(), user.getDisplayName(), user.getStatus(),
+                user.getEmailVerifiedAt(), authorization.platformRoles(userId));
     }
 }

@@ -12,9 +12,15 @@ import java.util.UUID;
 public interface UserRepository extends JpaRepository<User, UUID> {
     boolean existsByEmailIgnoreCase(String email);
     boolean existsByPhone(String phone);
+    Optional<User> findByEmailIgnoreCase(String email);
+    Optional<User> findByPhone(String phone);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where lower(u.email) = :email")
     Optional<User> lockByEmail(@Param("email") String email);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.phone = :phone")
+    Optional<User> lockByPhone(@Param("phone") String phone);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")

@@ -20,6 +20,7 @@ public class UserCredential {
         this.userId = userId; this.passwordHash = passwordHash; passwordChangedAt = now; createdAt = now; updatedAt = now;
     }
     public String getPasswordHash() { return passwordHash; }
+    public Instant getPasswordChangedAt() { return passwordChangedAt; }
     public int getFailedAttempts() { return failedAttempts; }
     public Instant getLockedUntil() { return lockedUntil; }
     public boolean isLocked(Instant now) { return lockedUntil != null && lockedUntil.isAfter(now); }
@@ -30,4 +31,11 @@ public class UserCredential {
         updatedAt = now;
     }
     public void succeeded(Instant now) { failedAttempts = 0; lockedUntil = null; updatedAt = now; }
+    public void changePassword(String newPasswordHash, Instant now) {
+        passwordHash = newPasswordHash;
+        passwordChangedAt = now;
+        failedAttempts = 0;
+        lockedUntil = null;
+        updatedAt = now;
+    }
 }
