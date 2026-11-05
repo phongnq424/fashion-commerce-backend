@@ -47,9 +47,12 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
                 Map.entry("product_moderation_cases", List.of("id", "product_id", "reporter_user_id", "reason_code", "status")),
                 Map.entry("carts", List.of("id", "user_id", "version")),
                 Map.entry("cart_items", List.of("id", "cart_id", "variant_id", "quantity", "selected")),
-                Map.entry("checkout_snapshots", List.of("id", "buyer_id", "cart_id", "cart_version", "items_snapshot", "status", "expires_at")),
+                Map.entry("checkout_snapshots", List.of("id", "buyer_id", "cart_id", "cart_version", "items_snapshot", "status", "expires_at", "order_id")),
+                Map.entry("order_idempotency_keys", List.of("buyer_id", "idempotency_key", "request_hash", "order_id", "expires_at")),
                 Map.entry("shop_orders", List.of("id", "shop_id")),
-                Map.entry("orders", List.of("id", "buyer_id")));
+                Map.entry("orders", List.of("id", "buyer_id", "payment_method", "status")),
+                Map.entry("payment_intents", List.of("id", "order_id", "method", "provider", "status")),
+                Map.entry("inventory_reservations", List.of("id", "order_item_id", "variant_id", "status")));
         List<String> issues = new ArrayList<>();
         required.forEach((table, columns) -> {
             List<String> actual = jdbc.queryForList("select column_name from information_schema.columns where table_schema = current_schema() and table_name = ?", String.class, table);
@@ -60,7 +63,7 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
             throw new IllegalStateException("Missing flyway_schema_history; use a reviewed test migration environment");
         }
         List<String> applied = jdbc.queryForList("select version from flyway_schema_history where success", String.class);
-        List<String> missing = new ArrayList<>(List.of("1", "1.1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15")); missing.removeAll(applied);
+        List<String> missing = new ArrayList<>(List.of("1", "1.1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17")); missing.removeAll(applied);
         if (!missing.isEmpty()) throw new IllegalStateException("Missing successful Flyway migrations: " + missing);
         if (jdbc.queryForObject("select count(*) from flyway_schema_history where not success", Integer.class) != 0) {
             throw new IllegalStateException("Failed entries in flyway_schema_history require review");
@@ -77,7 +80,8 @@ public class AuthenticationSchemaVerifier implements InitializingBean {
                 "fk_user_platform_roles_role_id_scope", "fk_shop_member_roles_role_id_scope", "fk_shop_member_roles_member_id",
                 "fk_shop_members_shop_id", "fk_shop_members_user_id", "fk_user_credentials_user_id", "fk_user_sessions_user_id",
                 "fk_revoked_access_tokens_user", "fk_shops_application_id", "ck_user_platform_roles_rule_1",
-                "ck_shop_member_roles_rule_1", "ck_products_version", "ck_checkout_snapshots_totals"));
+                "ck_shop_member_roles_rule_1", "ck_products_version", "ck_checkout_snapshots_totals",
+                "ck_checkout_snapshots_consumed", "ck_order_idempotency_hash"));
         requiredConstraints.removeAll(constraints);
         if (!requiredConstraints.isEmpty()) throw new IllegalStateException("Missing validated authentication constraints: " + requiredConstraints);
         if (!Boolean.TRUE.equals(jdbc.queryForObject("select exists(select 1 from roles where code='CUSTOMER' and scope='PLATFORM')", Boolean.class))) {

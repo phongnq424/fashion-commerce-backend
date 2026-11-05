@@ -203,6 +203,41 @@ public class CommerceRepository {
         return id;
     }
 
+    public Optional<CheckoutSnapshotRow> checkoutSnapshot(UUID buyerId, UUID snapshotId, boolean lock) {
+        String locking = lock ? " for update" : "";
+        return jdbc.query("""
+                select id,buyer_id,cart_id,cart_version,currency,recipient_snapshot::text,
+                       items_snapshot::text,items_subtotal_minor,shipping_fee_minor,
+                       discount_total_minor,grand_total_minor,status,expires_at,consumed_at,
+                       order_id,created_at
+                from checkout_snapshots where id=? and buyer_id=?
+                """ + locking, this::mapCheckoutSnapshot, snapshotId, buyerId).stream().findFirst();
+    }
+
+    public boolean expireCheckoutSnapshot(UUID snapshotId) {
+        return jdbc.update("""
+                update checkout_snapshots set status='EXPIRED'
+                where id=? and status='READY' and expires_at<=now()
+                """, snapshotId) == 1;
+    }
+
+    public boolean consumeCheckoutSnapshot(UUID snapshotId, UUID orderId) {
+        return jdbc.update("""
+                update checkout_snapshots set status='CONSUMED',consumed_at=now(),order_id=?
+                where id=? and status='READY' and expires_at>now()
+                """, orderId, snapshotId) == 1;
+    }
+
+    public int deleteCartItems(UUID cartId, Collection<UUID> itemIds) {
+        if (itemIds.isEmpty()) return 0;
+        String placeholders = String.join(",", Collections.nCopies(itemIds.size(), "?"));
+        List<Object> args = new ArrayList<>();
+        args.add(cartId);
+        args.addAll(itemIds);
+        return jdbc.update("delete from cart_items where cart_id=? and id in (" + placeholders + ")",
+                args.toArray());
+    }
+
     private void clearDefaultAddress(UUID buyerId) {
         jdbc.update("update user_addresses set is_default=false where user_id=? and is_default", buyerId);
     }
@@ -232,6 +267,21 @@ public class CommerceRepository {
                 instant(rs, "created_at"), instant(rs, "updated_at"));
     }
 
+    private CheckoutSnapshotRow mapCheckoutSnapshot(ResultSet rs, int row) throws SQLException {
+        try {
+            RecipientSnapshot recipient = mapper.readValue(rs.getString("recipient_snapshot"), RecipientSnapshot.class);
+            List<CheckoutShopSnapshot> shops = mapper.readValue(rs.getString("items_snapshot"), new TypeReference<>() { });
+            return new CheckoutSnapshotRow(rs.getObject("id", UUID.class), rs.getObject("buyer_id", UUID.class),
+                    rs.getObject("cart_id", UUID.class), rs.getLong("cart_version"), rs.getString("currency"),
+                    recipient, shops, rs.getLong("items_subtotal_minor"), rs.getLong("shipping_fee_minor"),
+                    rs.getLong("discount_total_minor"), rs.getLong("grand_total_minor"), rs.getString("status"),
+                    instant(rs, "expires_at"), nullableInstant(rs, "consumed_at"),
+                    rs.getObject("order_id", UUID.class), instant(rs, "created_at"));
+        } catch (JacksonException ex) {
+            throw new IllegalStateException("Invalid checkout snapshot JSON", ex);
+        }
+    }
+
     private Map<String, String> parseOptions(String value) {
         try { return mapper.readValue(value, new TypeReference<>() { }); }
         catch (JacksonException ex) { throw new IllegalStateException("Invalid variant options JSON", ex); }
@@ -249,6 +299,11 @@ public class CommerceRepository {
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {
         return rs.getTimestamp(column).toInstant();
+    }
+
+    private static Instant nullableInstant(ResultSet rs, String column) throws SQLException {
+        java.sql.Timestamp value = rs.getTimestamp(column);
+        return value == null ? null : value.toInstant();
     }
 
     private static String clean(String value) { return value.strip(); }
@@ -278,4 +333,10 @@ public class CommerceRepository {
             String addressLine1, String addressLine2, String ward, String district,
             String province, String provinceCode, String postalCode, String countryCode,
             boolean defaultAddress, Instant createdAt, Instant updatedAt) { }
+    public record CheckoutSnapshotRow(
+            UUID id, UUID buyerId, UUID cartId, long cartVersion, String currency,
+            RecipientSnapshot recipient, List<CheckoutShopSnapshot> shops,
+            long itemsSubtotalMinor, long shippingFeeMinor, long discountTotalMinor,
+            long grandTotalMinor, String status, Instant expiresAt, Instant consumedAt,
+            UUID orderId, Instant createdAt) { }
 }

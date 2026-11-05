@@ -1,7 +1,7 @@
 # Fashion Commerce Backend - Frontend API Contract
 
-Tài liệu này phản ánh các controller đang tồn tại trong source code. API tạo order, payment, shipping,
-voucher, review, return và refund chưa có controller nghiệp vụ.
+Tài liệu này phản ánh các controller đang tồn tại trong source code. Shipping, voucher, review,
+return và refund chưa có controller nghiệp vụ hoàn chỉnh.
 
 ## 1. Quy ước chung
 
@@ -846,6 +846,7 @@ trả `409 CART_VERSION_CONFLICT`; khi gặp lỗi này gọi lại `GET /cart`.
 | Method | Endpoint | Request | Response |
 |---|---|---|---|
 | POST | `/checkout/preview` | `CheckoutPreviewRequest` | `200 CheckoutPreviewResponse` |
+| GET | `/checkout/{snapshotId}/payment-methods` | - | `200 PaymentMethodResponse[]` |
 
 ```ts
 interface CheckoutPreviewRequest {
@@ -922,13 +923,60 @@ API vẫn trả `200` nhưng `readyForOrder=false`, `snapshotId=null` và có `i
 Lỗi riêng: `404 CHECKOUT_ADDRESS_NOT_FOUND`, `409 CART_VERSION_CONFLICT`,
 `409 CHECKOUT_SNAPSHOT_CONFLICT`, `422 CHECKOUT_CART_EMPTY`.
 
-## 12. Chưa có API nghiệp vụ
+## 12. Orders và payments
+
+| Method | Endpoint | Request | Response |
+|---|---|---|---|
+| POST | `/orders` | `PlaceOrderRequest` | `201 OrderResponse` |
+| GET | `/orders?limit=20&offset=0` | - | `200 SliceResponse<OrderSummaryResponse>` |
+| GET | `/orders/{orderId}` | - | `200 OrderResponse` |
+| POST | `/orders/{orderId}/cancel` | `CancelOrderRequest` hoặc body rỗng | `200 OrderResponse` |
+| GET | `/payments/{paymentId}` | - | `200 PaymentResponse` |
+
+`POST /orders` bắt buộc gửi header `Idempotency-Key`. Key dài 8–128 ký tự và chỉ gồm chữ, số,
+`.`, `_`, `:`, `-`. Retry cùng key và cùng request trả lại đúng order đã tạo; dùng lại key cho request khác trả
+`409 IDEMPOTENCY_KEY_REUSED`.
+
+```ts
+type PaymentMethod = "COD" | "MOMO" | "ZALOPAY" | "VNPAY";
+
+interface PlaceOrderRequest {
+  checkoutSnapshotId: string;
+  paymentMethod: PaymentMethod;
+  buyerNote?: string | null;
+  returnUrl?: string | null;
+}
+
+interface CancelOrderRequest {
+  reason?: string | null;
+}
+
+interface PaymentMethodResponse {
+  code: PaymentMethod;
+  displayName: string;
+  provider: string;
+  configured: boolean;
+  available: boolean;
+  status: "AVAILABLE" | "NOT_CONFIGURED" | "NOT_IMPLEMENTED" |
+          "TEMPORARILY_UNAVAILABLE" | "AMOUNT_NOT_SUPPORTED";
+  unavailableReason: string | null;
+}
+```
+
+Frontend chỉ cho người dùng chọn phương thức có `available=true`. Hiện `COD` thực thi hoàn chỉnh. MoMo,
+ZaloPay và VNPay có strategy/configuration riêng nhưng luôn báo `NOT_CONFIGURED` hoặc `NOT_IMPLEMENTED` cho tới
+khi provider client và xác minh callback được phát triển; backend không tạo đơn với phương thức chưa dùng được.
+
+Khi đặt COD thành công, backend khóa tồn kho theo thứ tự SKU, kiểm tra lại giá/trạng thái/tồn, trừ tồn thực tế,
+tạo movement `SALE`, payment intent `AWAITING_COLLECTION`, consume checkout snapshot và xóa các dòng đã mua khỏi
+cart trong cùng transaction. Hủy đơn trước khi shop xử lý sẽ hoàn tồn và tạo movement `RETURN_IN`.
+
+## 13. Chưa có API nghiệp vụ
 
 Các bảng database đã tồn tại nhưng hiện chưa có controller/service hoàn chỉnh cho:
 
-- `POST /orders` và API danh sách/chi tiết/xử lý order
-- inventory reservation khi tạo order
-- payment intent và payment callback
+- payment callback cho các cổng online
+- seller order processing
 - shipment/tracking
 - voucher redemption
 - review

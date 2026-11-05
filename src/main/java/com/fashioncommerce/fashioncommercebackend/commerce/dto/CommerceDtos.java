@@ -75,6 +75,53 @@ public final class CommerceDtos {
             long itemsSubtotalMinor, long shippingFeeMinor, long discountTotalMinor,
             long grandTotalMinor, List<CheckoutIssue> issues, Instant expiresAt) { }
 
+    public enum PaymentMethod { COD, MOMO, ZALOPAY, VNPAY }
+
+    public enum PaymentMethodStatus {
+        AVAILABLE, NOT_CONFIGURED, NOT_IMPLEMENTED, TEMPORARILY_UNAVAILABLE, AMOUNT_NOT_SUPPORTED
+    }
+
+    public record PaymentMethodResponse(
+            PaymentMethod code, String displayName, String provider,
+            boolean configured, boolean available, PaymentMethodStatus status,
+            String unavailableReason) { }
+
+    public record PlaceOrderRequest(
+            @NotNull UUID checkoutSnapshotId,
+            @NotNull PaymentMethod paymentMethod,
+            @Size(max = 500) String buyerNote,
+            @Size(max = 1000) String returnUrl) { }
+
+    public record CancelOrderRequest(@Size(max = 500) String reason) { }
+
+    public record PaymentResponse(
+            UUID id, UUID orderId, String merchantReference, PaymentMethod method,
+            String provider, long amountMinor, String currency, String status,
+            String checkoutUrl, Instant expiresAt, Instant paidAt, Instant createdAt) { }
+
+    public record OrderItemResponse(
+            UUID id, UUID productId, UUID variantId, String sellerSku,
+            String productName, Map<String, String> options, long unitPriceMinor,
+            int quantity, long discountMinor, long lineTotalMinor) { }
+
+    public record ShopOrderResponse(
+            UUID id, UUID shopId, String shopOrderNumber, String status,
+            long itemsSubtotalMinor, long shippingFeeMinor, long discountTotalMinor,
+            long totalMinor, List<OrderItemResponse> items) { }
+
+    public record OrderResponse(
+            UUID id, String orderNumber, String status, String currency,
+            PaymentMethod paymentMethod, RecipientSnapshot recipient,
+            long itemsSubtotalMinor, long shippingFeeMinor, long discountTotalMinor,
+            long grandTotalMinor, String buyerNote, Instant placedAt, Instant paidAt,
+            Instant completedAt, Instant cancelledAt, List<ShopOrderResponse> shops,
+            PaymentResponse payment) { }
+
+    public record OrderSummaryResponse(
+            UUID id, String orderNumber, String status, PaymentMethod paymentMethod,
+            long grandTotalMinor, String currency, int shopCount, int itemCount,
+            String paymentStatus, Instant placedAt) { }
+
     public record CreateAddressRequest(
             @NotBlank @Size(max = 120) String recipientName,
             @NotBlank @Size(max = 24) String recipientPhone,

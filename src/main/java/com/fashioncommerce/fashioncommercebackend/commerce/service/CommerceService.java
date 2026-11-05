@@ -66,6 +66,14 @@ public class CommerceService {
         commerce.ensureCart(buyerId);
         CartRow cart = lockedCart(buyerId, request.expectedVersion());
         CartItemState item = item(cart.id(), itemId);
+        VariantSaleRow variant = commerce.variantForCart(item.variantId())
+                .filter(VariantSaleRow::sellable)
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, "CART_VARIANT_UNAVAILABLE",
+                        "This SKU is no longer available"));
+        if (variant.availableQuantity() < request.quantity()) {
+            throw new ApiException(HttpStatus.CONFLICT, "CART_STOCK_INSUFFICIENT",
+                    "Requested quantity exceeds available stock");
+        }
         commerce.updateCartItem(item.id(), request.quantity(), request.selected());
         bump(cart);
         return response(buyerId);

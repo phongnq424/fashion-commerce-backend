@@ -55,7 +55,7 @@ src/main/resources
 
 ## Cơ sở dữ liệu
 
-Repo có 16 migration, tạo tổng cộng 60 bảng:
+Repo có 18 migration, tạo tổng cộng 61 bảng:
 
 | Migration | Phạm vi |
 |---|---|
@@ -75,6 +75,8 @@ Repo có 16 migration, tạo tổng cộng 60 bảng:
 | `V13` | Denylist JWT để logout thu hồi access token hiện tại |
 | `V14` | Optimistic version cho product và index tìm kiếm/cursor catalog công khai |
 | `V15` | Checkout snapshot bất biến, có thời hạn để chuẩn bị tạo order |
+| `V16` | Đăng ký ưu tiên số điện thoại, email tùy chọn và ràng buộc xác minh số điện thoại |
+| `V17` | Đặt hàng idempotent, payment strategy, liên kết checkout-order và hoàn kho khi hủy |
 
 Flyway bị tắt mặc định để tránh vô tình thay đổi sai database. Chỉ bật migration trên database development hoặc test đã được xác nhận.
 

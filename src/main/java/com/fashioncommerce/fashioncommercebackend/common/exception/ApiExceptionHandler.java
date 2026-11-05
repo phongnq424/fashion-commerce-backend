@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.Instant;
@@ -27,7 +29,8 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
-            ConstraintViolationException.class, MethodArgumentTypeMismatchException.class})
+            ConstraintViolationException.class, MethodArgumentTypeMismatchException.class,
+            MissingRequestHeaderException.class, MissingServletRequestParameterException.class})
     ResponseEntity<ApiError> invalidRequest(Exception ex, HttpServletRequest request) {
         return error(HttpStatus.BAD_REQUEST, "REQUEST_INVALID", "Invalid request", request);
     }
